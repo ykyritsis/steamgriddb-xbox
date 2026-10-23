@@ -14,6 +14,28 @@ namespace SteamGridDB.Xbox.Models
         private string author;
         private int score;
         private int id;
+        private string source = "SteamGridDB";
+
+        /// <summary>
+        /// Where the artwork comes from (SteamGridDB, Xbox Store, PlayStation Store or IGN).
+        /// </summary>
+        public string Source
+        {
+            get => source;
+            set
+            {
+                if (source != value)
+                {
+                    source = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Tooltip text describing the artwork.
+        /// </summary>
+        public string Description => Source == "SteamGridDB" ? $"SteamGridDB • {Style} • by {Author} • score {Score}" : $"{Source} • {Author}";
 
         public string Url
         {

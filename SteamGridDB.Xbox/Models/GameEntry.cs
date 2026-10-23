@@ -26,6 +26,14 @@ namespace SteamGridDB.Xbox.Models
             get; set;
         }
 
+        /// <summary>
+        /// SteamGridDB game ID resolved from the platform ID, used to fetch artwork reliably for every platform.
+        /// </summary>
+        public int? SteamGridDbGameId
+        {
+            get; set;
+        }
+
         public string Name
         {
             get => name;

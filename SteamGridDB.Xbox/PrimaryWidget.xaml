@@ -126,6 +126,17 @@
                             FontSize="16"
                             Glyph="&#xE72C;" />
                     </Button>
+                    <Button
+                        Width="40"
+                        Height="40"
+                        Click="SettingsButton_Click"
+                        Style="{StaticResource FluentIconButton}"
+                        ToolTipService.ToolTip="Settings">
+                        <FontIcon
+                            FontFamily="Segoe MDL2 Assets"
+                            FontSize="16"
+                            Glyph="&#xE713;" />
+                    </Button>
                 </StackPanel>
             </Grid>
 
@@ -433,11 +444,25 @@
                                         Width="128"
                                         Height="128"
                                         Background="#2D2D2D"
-                                        CornerRadius="6">
+                                        CornerRadius="6"
+                                        ToolTipService.ToolTip="{x:Bind Description}">
                                         <Grid.Clip>
                                             <RectangleGeometry Rect="0,0,140,140" />
                                         </Grid.Clip>
                                         <Image Source="{x:Bind ThumbUrl, Mode=OneWay}" Stretch="UniformToFill" />
+                                        <!--  Artwork source badge  -->
+                                        <Border
+                                            Margin="4"
+                                            Padding="6,2"
+                                            HorizontalAlignment="Left"
+                                            VerticalAlignment="Bottom"
+                                            Background="#CC000000"
+                                            CornerRadius="3">
+                                            <TextBlock
+                                                FontSize="10"
+                                                Foreground="#FFFFFF"
+                                                Text="{x:Bind Source, Mode=OneWay}" />
+                                        </Border>
                                     </Grid>
                                 </DataTemplate>
                             </GridView.ItemTemplate>
@@ -729,13 +754,11 @@
                                                 Foreground="#FFFFFF"
                                                 Text="{x:Bind Name}"
                                                 TextWrapping="Wrap" />
-                                            <TextBlock FontSize="11" Foreground="#99FFFFFF">
-                                                <Run Text="ID: " />
-                                                <Run Text="{x:Bind Id}" />
-                                                <Run Text=" • " />
-                                                <Run Text="Verified: " />
-                                                <Run Text="{x:Bind Verified}" />
-                                            </TextBlock>
+                                            <TextBlock
+                                                FontSize="11"
+                                                Foreground="#99FFFFFF"
+                                                Text="{x:Bind Subtitle}"
+                                                TextWrapping="Wrap" />
                                         </StackPanel>
                                     </DataTemplate>
                                 </ListView.ItemTemplate>

@@ -23,6 +23,7 @@ namespace SteamGridDB.Xbox.Services.SteamGridDB
         private readonly HttpClient httpClient;
         private readonly string baseUrl = "https://www.steamgriddb.com/api/v2";
         private readonly TimeSpan timeout;
+        private const int maxRateLimitRetries = 3;
         private bool disposed = false;
 
         /// <summary>
@@ -71,6 +72,25 @@ namespace SteamGridDB.Xbox.Services.SteamGridDB
             }
 
             return new List<SteamGridDbGame>();
+        }
+
+        /// <summary>
+        /// Searches by name and returns the first result whose name matches exactly, ignoring case, punctuation and trademark symbols.
+        /// </summary>
+        /// <param name="name">Game name.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>Matching game or null.</returns>
+        public async Task<SteamGridDbGame> FindGameByExactNameAsync(string name, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return null;
+            }
+
+            List<SteamGridDbGame> results = await SearchGameByNameAsync(name, cancellationToken);
+            string normalisedName = Stores.StoreArtworkClient.NormaliseTitle(name);
+
+            return results.FirstOrDefault(g => Stores.StoreArtworkClient.NormaliseTitle(g.Name) == normalisedName);
         }
 
         /// <summary>
@@ -125,7 +145,9 @@ namespace SteamGridDB.Xbox.Services.SteamGridDB
             }
 
             var urlBuilder = new StringBuilder($"{baseUrl}/grids/{platform}/{Uri.EscapeDataString(platformId)}");
-            var queryParams = new List<string>();
+
+            // The Xbox app cannot show animated artwork
+            var queryParams = new List<string> { "types=static" };
 
             if (dimensions != null && dimensions.Length > 0)
             {
@@ -184,7 +206,9 @@ namespace SteamGridDB.Xbox.Services.SteamGridDB
             }
 
             var urlBuilder = new StringBuilder($"{baseUrl}/grids/game/{gameId}");
-            var queryParams = new List<string>();
+
+            // The Xbox app cannot show animated artwork
+            var queryParams = new List<string> { "types=static" };
 
             if (dimensions != null && dimensions.Length > 0)
             {
@@ -340,7 +364,9 @@ namespace SteamGridDB.Xbox.Services.SteamGridDB
             }
 
             var urlBuilder = new StringBuilder($"{baseUrl}/icons/{platform}/{Uri.EscapeDataString(platformId)}");
-            var queryParams = new List<string>();
+
+            // The Xbox app cannot show animated artwork
+            var queryParams = new List<string> { "types=static" };
 
             if (dimensions != null && dimensions.Length > 0)
             {
@@ -399,7 +425,9 @@ namespace SteamGridDB.Xbox.Services.SteamGridDB
             }
 
             var urlBuilder = new StringBuilder($"{baseUrl}/icons/game/{gameId}");
-            var queryParams = new List<string>();
+
+            // The Xbox app cannot show animated artwork
+            var queryParams = new List<string> { "types=static" };
 
             if (dimensions != null && dimensions.Length > 0)
             {
@@ -454,6 +482,14 @@ namespace SteamGridDB.Xbox.Services.SteamGridDB
                 using (var linkedCts = System.Threading.CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token))
                 {
                     var response = await httpClient.GetAsync(uri).AsTask(linkedCts.Token);
+
+                    // Loading a large library fires many requests in a short time - back off when rate limited
+                    for (int attempt = 1; attempt <= maxRateLimitRetries && (int)response.StatusCode == 429; attempt++)
+                    {
+                        response.Dispose();
+                        await Task.Delay(TimeSpan.FromSeconds(attempt * 2), linkedCts.Token);
+                        response = await httpClient.GetAsync(uri).AsTask(linkedCts.Token);
+                    }
 
                     if (response.IsSuccessStatusCode)
                     {

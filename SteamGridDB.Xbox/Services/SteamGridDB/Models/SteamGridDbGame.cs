@@ -31,5 +31,21 @@ namespace SteamGridDB.Xbox.Services.SteamGridDB.Models
         {
             get; set;
         }
+
+        /// <summary>
+        /// Secondary line shown in search results (not part of the API response).
+        /// </summary>
+        public string Subtitle
+        {
+            get => subtitle ?? $"SteamGridDB ID: {Id} • Verified: {Verified}";
+            set => subtitle = value;
+        }
+
+        private string subtitle;
+
+        /// <summary>
+        /// True for the synthetic search result that searches store artwork only.
+        /// </summary>
+        public bool IsStoreSearchOnly => Id == 0;
     }
 }

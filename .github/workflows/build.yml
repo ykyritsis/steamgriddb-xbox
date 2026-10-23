@@ -1,0 +1,73 @@
+name: Build
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [x64, ARM64]
+
+    env:
+      CERT_SUBJECT: CN=SteamGridDB for Xbox Community Build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: microsoft/setup-msbuild@v2
+
+      # Uses a stable certificate from repository secrets when configured (so users only trust it once),
+      # otherwise creates a throwaway self-signed one for this build.
+      - name: Prepare signing certificate
+        shell: pwsh
+        env:
+          SIGNING_PFX_BASE64: ${{ secrets.SIGNING_PFX_BASE64 }}
+          SIGNING_PFX_PASSWORD: ${{ secrets.SIGNING_PFX_PASSWORD }}
+        run: |
+          $pfxPath = Join-Path $env:RUNNER_TEMP 'signing.pfx'
+          if ($env:SIGNING_PFX_BASE64) {
+            [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:SIGNING_PFX_BASE64))
+            $password = $env:SIGNING_PFX_PASSWORD
+          } else {
+            $password = [Guid]::NewGuid().ToString()
+            $cert = New-SelfSignedCertificate -Type Custom -Subject $env:CERT_SUBJECT -KeyUsage DigitalSignature `
+              -FriendlyName 'SteamGridDB for Xbox Community Build' -CertStoreLocation 'Cert:\CurrentUser\My' `
+              -TextExtension @('2.5.29.37={text}1.3.6.1.5.5.7.3.3', '2.5.29.19={text}') -NotAfter (Get-Date).AddYears(3)
+            Export-PfxCertificate -Cert $cert -FilePath $pfxPath -Password (ConvertTo-SecureString $password -AsPlainText -Force) | Out-Null
+          }
+          $loaded = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($pfxPath, $password, 'Exportable')
+          if ($loaded.Subject -ne $env:CERT_SUBJECT) { throw "Certificate subject '$($loaded.Subject)' must match the manifest publisher '$env:CERT_SUBJECT'" }
+          New-Item -ItemType Directory -Force out | Out-Null
+          [IO.File]::WriteAllBytes('out\SteamGridDB.Xbox.Community.cer', $loaded.Export('Cert'))
+          "PFX_PATH=$pfxPath" >> $env:GITHUB_ENV
+          "::add-mask::$password"
+          "PFX_PASSWORD=$password" >> $env:GITHUB_ENV
+
+      - name: Restore
+        run: msbuild SteamGridDB.Xbox.sln /t:Restore /p:Configuration=Release /p:Platform=${{ matrix.platform }}
+
+      - name: Build package
+        run: >
+          msbuild SteamGridDB.Xbox\SteamGridDB.Xbox.csproj
+          /p:Configuration=Release
+          /p:Platform=${{ matrix.platform }}
+          /p:AppxBundle=Never
+          /p:UapAppxPackageBuildMode=SideloadOnly
+          /p:GenerateAppInstallerFile=false
+          /p:AppxPackageSigningEnabled=true
+          /p:GenerateTemporaryStoreCertificate=false
+          /p:PackageCertificateKeyFile="${{ env.PFX_PATH }}"
+          /p:PackageCertificatePassword="${{ env.PFX_PASSWORD }}"
+          /p:AppxPackageDir="${{ github.workspace }}\out\"
+          /m
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SteamGridDB.Xbox.Community-${{ matrix.platform }}
+          path: out/

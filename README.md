@@ -1,5 +1,24 @@
 # SteamGridDB for Xbox
 
+> **Community fork (1.5.0.0)** of [lirrik/steamgriddb-xbox](https://github.com/lirrik/steamgriddb-xbox) with fixes for games going missing from the list and artwork changes not sticking, plus extra square artwork sources.
+>
+> **Fixed**
+> - **Games missing or a different number found on every refresh** ([upstream #7](https://github.com/lirrik/steamgriddb-xbox/issues/7)): one unreadable manifest entry or locked image used to silently drop every remaining game from that store. Each entry is now handled on its own, manifests are re-read if the Xbox app is mid-write, and refreshes can no longer overlap.
+> - **Artwork changes not applying or being reset**: downloaded images (often JPEG, WebP or ICO) were saved as-is under a `.png` name. Every image is now decoded, cropped to a square and re-encoded properly. Customised files are also made read-only, so the Xbox app can no longer overwrite them (you can turn this off in Settings).
+> - The widget kept every cover image file open while it ran, which blocked the Xbox app from updating them. Images are now loaded into memory.
+> - Epic games matched on SteamGridDB but then showed no artwork, because the wrong ID was used for the artwork lookup. Lookups now use the SteamGridDB game ID.
+> - Backups for custom games with non-`.png` images overwrote the original.
+> - Without a `STEAMGRIDDB_API_KEY` environment variable, nothing loaded at all. There is now a Settings dialog for the key, and the list loads without one.
+> - SteamGridDB rate limiting during big library loads is retried, and name lookups run in parallel.
+>
+> **New**
+> - **Square artwork from the Xbox Store (box art), PlayStation Store (master art) and IGN**, shown next to SteamGridDB results with a source badge. Search uses the same public endpoints as the Playnite [XboxMetadata / IgnMetadata](https://github.com/Jeshibu/PlayniteExtensions) extensions and the PlayStation Store website.
+> - "Fix my library" falls back to store artwork when SteamGridDB has nothing and the store title matches exactly.
+> - Manual search has a "store artwork only" result, so it works even without a SteamGridDB key.
+> - Games whose name is known (custom games, Epic, Ubisoft) are matched to SteamGridDB by exact name.
+>
+> **Installing a build**: download the artifact for your CPU (x64 for most PCs and the ROG Ally, ARM64 for Snapdragon) from the latest [Build workflow run](../../actions/workflows/build.yml). Unzip it, then right-click `Install.ps1` and choose *Run with PowerShell*. The script trusts the included certificate and installs the package. This build has its own identity, so it installs alongside the Microsoft Store version; it appears in Game Bar as **SteamGridDB (Community)**. Open its Settings (gear icon) and paste your [SteamGridDB API key](https://www.steamgriddb.com/profile/preferences/api).
+
 [![Get it from Microsoft](https://get.microsoft.com/images/en-us%20dark.svg)](https://apps.microsoft.com/detail/9pkqx0rjc32v)
 
 Xbox Game Bar widget to customise Xbox PC app game artwork with images from [SteamGridDB](https://www.steamgriddb.com/). Replace wrong, low-resolution or missing images for games from third-party stores (Steam, GOG, Epic Games Store, EA App, Ubisoft Connect or manually added games) with high-quality artwork submitted by community.
