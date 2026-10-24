@@ -92,6 +92,17 @@
                     Orientation="Horizontal"
                     Spacing="6">
                     <Button
+                        Width="40"
+                        Height="40"
+                        Click="AddMissingSteamGamesButton_Click"
+                        Style="{StaticResource FluentIconButton}"
+                        ToolTipService.ToolTip="Add missing Steam games">
+                        <FontIcon
+                            FontFamily="Segoe MDL2 Assets"
+                            FontSize="16"
+                            Glyph="&#xE710;" />
+                    </Button>
+                    <Button
                         x:Name="FixLibraryButton"
                         Width="40"
                         Height="40"

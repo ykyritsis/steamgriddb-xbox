@@ -12,6 +12,21 @@ namespace SteamGridDB.Xbox.Services
         private const string apiKeySetting = "SteamGridDbApiKey";
         private const string lockArtworkSetting = "LockArtwork";
         private const string storeSourcesSetting = "UseStoreSources";
+        private const string steamPathSetting = "SteamPath";
+
+        /// <summary>
+        /// Steam install folder entered in Settings, or null to look in the default locations.
+        /// </summary>
+        public static string SteamPath
+        {
+            get
+            {
+                string path = ApplicationData.Current.LocalSettings.Values[steamPathSetting] as string;
+
+                return string.IsNullOrWhiteSpace(path) ? null : path.Trim();
+            }
+            set => ApplicationData.Current.LocalSettings.Values[steamPathSetting] = value?.Trim() ?? string.Empty;
+        }
 
         /// <summary>
         /// SteamGridDB API key entered in the widget settings, falling back to the STEAMGRIDDB_API_KEY environment variable.

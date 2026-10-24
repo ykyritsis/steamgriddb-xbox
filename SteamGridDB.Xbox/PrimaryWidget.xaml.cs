@@ -23,7 +23,9 @@ using SteamGridDB.Xbox.Services;
 using SteamGridDB.Xbox.Services.Artwork;
 using SteamGridDB.Xbox.Services.SteamGridDB;
 using SteamGridDB.Xbox.Services.SteamGridDB.Models;
+using SteamGridDB.Xbox.Services.Steam;
 using SteamGridDB.Xbox.Services.Stores;
+using SteamGridDB.Xbox.Services.Xbox;
 
 namespace SteamGridDB.Xbox
 {
@@ -855,8 +857,18 @@ namespace SteamGridDB.Xbox
                 IsOn = AppSettings.UseStoreSources
             };
 
+            TextBox steamPathBox = new TextBox
+            {
+                Header = "Steam folder (only if Steam is not in Program Files)",
+                PlaceholderText = SteamLibraryScanner.DefaultSteamPaths[0],
+                Text = AppSettings.SteamPath ?? string.Empty
+            };
+            steamPathBox.GotFocus += GameSearchBox_GotFocus;
+            steamPathBox.LostFocus += GameSearchBox_LostFocus;
+
             StackPanel panel = new StackPanel { Spacing = 16 };
             panel.Children.Add(apiKeyBox);
+            panel.Children.Add(steamPathBox);
             panel.Children.Add(lockToggle);
             panel.Children.Add(storeToggle);
             panel.Children.Add(new TextBlock
@@ -877,6 +889,7 @@ namespace SteamGridDB.Xbox
             AppSettings.SteamGridDbApiKey = apiKeyBox.Text;
             AppSettings.LockArtwork = lockToggle.IsOn;
             AppSettings.UseStoreSources = storeToggle.IsOn;
+            AppSettings.SteamPath = steamPathBox.Text;
 
             if (currentLock != lockToggle.IsOn)
             {
@@ -920,6 +933,243 @@ namespace SteamGridDB.Xbox
             }
 
             StatusText.Text = $"Settings saved, artwork protection {(locked ? "enabled" : "removed")} for {count} game{(count == 1 ? string.Empty : "s")}";
+        }
+
+        /// <summary>
+        /// Finds Steam games that are installed but missing from the Xbox app and adds them as custom library entries
+        /// that launch through Steam (steam://rungameid/...), with cover art.
+        /// </summary>
+        private async void AddMissingSteamGamesButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (isBusy)
+            {
+                StatusText.Text = "Please wait for the current operation to finish";
+
+                return;
+            }
+
+            isBusy = true;
+
+            try
+            {
+                StatusText.Text = "Looking for installed Steam games missing from the Xbox app...";
+
+                StorageFolder steamFolder = await SteamLibraryScanner.FindSteamFolderAsync(AppSettings.SteamPath);
+
+                if (steamFolder == null)
+                {
+                    StatusText.Text = "Steam was not found - set its folder in Settings";
+
+                    return;
+                }
+
+                List<InstalledSteamGame> installedGames = await SteamLibraryScanner.GetInstalledGamesAsync(steamFolder);
+                HashSet<string> inXboxApp = new HashSet<string>(GameEntries.Where(g => g.Platform == GamePlatform.Steam).Select(g => g.ExternalPlatformId));
+                List<string> existingLaunchArguments = await CustomLibraryWriter.GetExistingLaunchArgumentsAsync();
+
+                List<InstalledSteamGame> missingGames = installedGames
+                    .Where(g => !inXboxApp.Contains(g.AppId) && !existingLaunchArguments.Any(args => LaunchesSteamApp(args, g.AppId)))
+                    .ToList();
+
+                // The Xbox app hides third-party games that have no cover, which looks like they are missing too
+                int withoutCover = GameEntries.Count(g => g.Platform == GamePlatform.Steam && g.Image == null);
+                string coverHint = withoutCover > 0
+                    ? $" {withoutCover} Steam game{(withoutCover == 1 ? " is" : "s are")} in the Xbox app but without a cover, which the Xbox app may hide - use Fix my library to add covers."
+                    : string.Empty;
+
+                if (missingGames.Count == 0)
+                {
+                    StatusText.Text = $"All {installedGames.Count} installed Steam games are already in the Xbox app.{coverHint}";
+
+                    return;
+                }
+
+                // Let the user pick which games to add
+                StackPanel list = new StackPanel { Spacing = 4 };
+
+                foreach (InstalledSteamGame game in missingGames)
+                {
+                    list.Children.Add(new CheckBox { Content = game.Name, Tag = game, IsChecked = true });
+                }
+
+                StackPanel content = new StackPanel { Spacing = 12 };
+                content.Children.Add(new TextBlock
+                {
+                    Text = $"These Steam games are installed but not in the Xbox app. They will be added as custom games that launch through Steam, with cover art.{coverHint}\n\n" +
+                           "The Xbox app will be closed while its library is updated.",
+                    TextWrapping = TextWrapping.Wrap
+                });
+                content.Children.Add(new ScrollViewer { Content = list, MaxHeight = 260 });
+
+                if (await CreateDialog("Add missing Steam games", content, "Add to Xbox app").ShowAsync() != ContentDialogResult.Primary)
+                {
+                    StatusText.Text = "No games were added";
+
+                    return;
+                }
+
+                List<InstalledSteamGame> selectedGames = list.Children.OfType<CheckBox>()
+                    .Where(c => c.IsChecked == true)
+                    .Select(c => (InstalledSteamGame)c.Tag)
+                    .ToList();
+
+                if (selectedGames.Count == 0)
+                {
+                    StatusText.Text = "No games were added";
+
+                    return;
+                }
+
+                // Covers first, so the Xbox app has them as soon as it loads the new entries
+                StorageFolder imagesFolder = await CustomLibraryWriter.GetImagesFolderAsync();
+                List<CustomGameEntry> entries = new List<CustomGameEntry>();
+
+                using (SteamGridDbClient client = CreateSteamGridDbClient())
+                {
+                    foreach (InstalledSteamGame game in selectedGames)
+                    {
+                        StatusText.Text = $"Finding cover art for {game.Name} ({entries.Count + 1}/{selectedGames.Count})...";
+
+                        entries.Add(new CustomGameEntry
+                        {
+                            Title = game.Name,
+                            InstallLocation = steamFolder.Path.TrimEnd('\\') + "\\",
+                            ExecutableName = "steam.exe",
+                            ExecutableCommandArgs = GetSteamLaunchUrl(game.AppId),
+                            ImagePath = await SaveCustomCoverAsync(client, game, imagesFolder)
+                        });
+                    }
+                }
+
+                StatusText.Text = "Closing the Xbox app...";
+
+                bool closedAutomatically = await CustomLibraryWriter.TryCloseXboxAppAsync();
+
+                if (closedAutomatically)
+                {
+                    await Task.Delay(1500);
+                }
+                else
+                {
+                    ContentDialog closeDialog = CreateDialog(
+                        "Close the Xbox app",
+                        "The Xbox app could not be closed automatically. It saves over its library while running, so please close it completely " +
+                        "(including from the system tray), then press Continue.",
+                        "Continue");
+
+                    if (await closeDialog.ShowAsync() != ContentDialogResult.Primary)
+                    {
+                        StatusText.Text = "No games were added";
+
+                        return;
+                    }
+                }
+
+                List<string> addedIds = await CustomLibraryWriter.AddEntriesAsync(entries);
+
+                // In Xbox full screen experience Windows restarts the Xbox app within a second of closing it,
+                // so it may already have loaded the old library - close it once more so the restart reads the new one
+                if (closedAutomatically)
+                {
+                    await Task.Delay(1500);
+                    await CustomLibraryWriter.TryCloseXboxAppAsync();
+                }
+
+                await Task.Delay(3000);
+
+                int kept = await CustomLibraryWriter.CountEntriesAsync(addedIds);
+
+                StatusText.Text = kept == addedIds.Count
+                    ? $"Added {kept} Steam game{(kept == 1 ? string.Empty : "s")} to the Xbox app - open the Xbox app to see {(kept == 1 ? "it" : "them")}"
+                    : $"The Xbox app overwrote the change ({kept} of {addedIds.Count} kept) - close it completely and try again";
+
+                // The custom library changed, so reload to show the new entries here too
+                manifestReloadPending = true;
+            }
+            catch (Exception ex)
+            {
+                StatusText.Text = $"Could not add Steam games: {ex.Message}";
+
+                System.Diagnostics.Debug.WriteLine($"Error in AddMissingSteamGamesButton_Click: {ex.Message}");
+            }
+            finally
+            {
+                isBusy = false;
+
+                ReloadIfPending();
+            }
+        }
+
+        private static string GetSteamLaunchUrl(string appId) => $"steam://rungameid/{appId}";
+
+        private static bool LaunchesSteamApp(string launchArguments, string appId)
+        {
+            return !string.IsNullOrEmpty(launchArguments) &&
+                   launchArguments.Split(new[] { ' ', '"' }, StringSplitOptions.RemoveEmptyEntries)
+                                  .Any(a => string.Equals(a.TrimEnd('/'), GetSteamLaunchUrl(appId), StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>
+        /// Downloads the best square cover for a Steam game into the Xbox app's custom images folder. Returns its path,
+        /// or an empty string when nothing was found (the Xbox app requires the field, empty is allowed).
+        /// </summary>
+        private async Task<string> SaveCustomCoverAsync(SteamGridDbClient client, InstalledSteamGame game, StorageFolder imagesFolder)
+        {
+            try
+            {
+                string url = null;
+
+                if (client != null)
+                {
+                    List<SteamGridDbGrid> grids = await client.GetSquareGridsByPlatformIdAsync("steam", game.AppId);
+
+                    if (grids.Count == 0)
+                    {
+                        SteamGridDbGame byName = await client.FindGameByExactNameAsync(game.Name);
+
+                        if (byName != null)
+                        {
+                            grids = await client.GetSquareGridsByGameIdAsync(byName.Id);
+                        }
+                    }
+
+                    url = grids.OrderByDescending(g => g.Score).FirstOrDefault()?.Url;
+                }
+
+                if (url == null && AppSettings.UseStoreSources)
+                {
+                    url = (await StoreArtworkClient.FindExactMatchAsync(game.Name))?.Url;
+                }
+
+                if (url == null)
+                {
+                    return string.Empty;
+                }
+
+                IBuffer downloaded;
+
+                using (HttpResponseMessage response = await sharedHttpClient.GetAsync(new Uri(url)))
+                {
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        return string.Empty;
+                    }
+
+                    downloaded = await response.Content.ReadAsBufferAsync();
+                }
+
+                IBuffer cover = await ArtworkImageConverter.ToSquareImageAsync(downloaded, false);
+                StorageFile file = await imagesFolder.CreateFileAsync($"sgdbx-steam-{game.AppId}.png", CreationCollisionOption.ReplaceExisting);
+                await FileIO.WriteBufferAsync(file, cover);
+
+                return file.Path;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Could not get a cover for {game.Name}: {ex.Message}");
+
+                return string.Empty;
+            }
         }
 
         /// <summary>

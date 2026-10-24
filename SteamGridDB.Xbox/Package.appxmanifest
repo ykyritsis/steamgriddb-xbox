@@ -13,7 +13,7 @@
   <Identity
     Name="SteamGridDBforXbox.Community"
     Publisher="CN=SteamGridDB for Xbox Community Build"
-    Version="1.5.2.0" />
+    Version="1.6.0.0" />
 
   <mp:PhoneIdentity PhoneProductId="556a41b4-fae4-4e6f-925e-cd8945b576d5" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 
@@ -117,6 +117,8 @@
 
   <Capabilities>
     <rescap:Capability Name="broadFileSystemAccess" />
+    <!-- Lets "Add missing Steam games" close the Xbox app so it does not overwrite its custom library while it is updated -->
+    <rescap:Capability Name="appDiagnostics" />
     <Capability Name="internetClient" />
   </Capabilities>
 </Package>

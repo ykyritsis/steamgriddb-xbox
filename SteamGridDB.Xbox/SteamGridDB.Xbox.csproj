@@ -120,6 +120,8 @@
     <Compile Include="Services\Artwork\ArtworkFileLock.cs" />
     <Compile Include="Services\Artwork\ArtworkImageConverter.cs" />
     <Compile Include="Services\Stores\StoreArtworkClient.cs" />
+    <Compile Include="Services\Steam\SteamLibraryScanner.cs" />
+    <Compile Include="Services\Xbox\CustomLibraryWriter.cs" />
     <Compile Include="Services\SteamGridDB\Models\SteamGridDbGrid.cs" />
     <Compile Include="Services\SteamGridDB\Models\SteamGridDbResponse.cs" />
     <Compile Include="Services\SteamGridDB\Models\SteamGridDbAuthor.cs" />

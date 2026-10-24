@@ -1,6 +1,6 @@
 # SteamGridDB for Xbox
 
-> **Community fork (1.5.2)** of [lirrik/steamgriddb-xbox](https://github.com/lirrik/steamgriddb-xbox) with fixes for games going missing from the list and artwork changes not sticking, plus extra square artwork sources.
+> **Community fork (1.6.0)** of [lirrik/steamgriddb-xbox](https://github.com/lirrik/steamgriddb-xbox) with fixes for games going missing from the list and artwork changes not sticking, plus extra square artwork sources.
 >
 > **Fixed**
 > - **Games missing or a different number found on every refresh** ([upstream #7](https://github.com/lirrik/steamgriddb-xbox/issues/7)): one unreadable manifest entry or locked image used to silently drop every remaining game from that store. Each entry is now handled on its own, manifests are re-read if the Xbox app is mid-write, and refreshes can no longer overlap.
@@ -14,6 +14,7 @@
 > **New**
 > - **Square artwork from the Xbox Store (box art), PlayStation Store (master art) and IGN**, shown next to SteamGridDB results with a source badge. Search uses the same public endpoints as the Playnite [XboxMetadata / IgnMetadata](https://github.com/Jeshibu/PlayniteExtensions) extensions and the PlayStation Store website.
 > - "Fix my library" falls back to store artwork when SteamGridDB has nothing and the store title matches exactly.
+> - **Add missing Steam games** (+ button): finds games installed in Steam that the Xbox app doesn't list and adds them to its custom library. They launch through Steam (`steam.exe steam://rungameid/<id>`) rather than the game's exe, and get SteamGridDB or store cover art. The Xbox app is closed while its library is updated (Windows asks once whether the widget may do this), and the previous library file is backed up first. The custom library format follows [xbox-rom-manager](https://github.com/izzyjade06/xbox-rom-manager). It is not officially documented, so future Xbox app updates may change it.
 > - Manual search has a "store artwork only" result, so it works even without a SteamGridDB key.
 > - Games whose name is known (custom games, Epic, Ubisoft) are matched to SteamGridDB by exact name.
 > - Steam games SteamGridDB doesn't know by ID yet (new releases) get their name from the Steam store, so they no longer show as Unknown.
