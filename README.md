@@ -1,6 +1,6 @@
 # SteamGridDB for Xbox
 
-> **Community fork (1.5.0.0)** of [lirrik/steamgriddb-xbox](https://github.com/lirrik/steamgriddb-xbox) with fixes for games going missing from the list and artwork changes not sticking, plus extra square artwork sources.
+> **Community fork (1.5.1)** of [lirrik/steamgriddb-xbox](https://github.com/lirrik/steamgriddb-xbox) with fixes for games going missing from the list and artwork changes not sticking, plus extra square artwork sources.
 >
 > **Fixed**
 > - **Games missing or a different number found on every refresh** ([upstream #7](https://github.com/lirrik/steamgriddb-xbox/issues/7)): one unreadable manifest entry or locked image used to silently drop every remaining game from that store. Each entry is now handled on its own, manifests are re-read if the Xbox app is mid-write, and refreshes can no longer overlap.
@@ -16,6 +16,8 @@
 > - "Fix my library" falls back to store artwork when SteamGridDB has nothing and the store title matches exactly.
 > - Manual search has a "store artwork only" result, so it works even without a SteamGridDB key.
 > - Games whose name is known (custom games, Epic, Ubisoft) are matched to SteamGridDB by exact name.
+> - Steam games SteamGridDB doesn't know by ID yet (new releases) get their name from the Steam store, so they no longer show as Unknown.
+> - The list reloads automatically when the Xbox app adds or removes games while the widget is open.
 >
 > **Installing a build**: download the artifact for your CPU (x64 for most PCs and the ROG Ally, ARM64 for Snapdragon) from the latest [Build workflow run](../../actions/workflows/build.yml). Unzip it, then right-click `Install.ps1` and choose *Run with PowerShell*. The script trusts the included certificate and installs the package. This build has its own identity, so it installs alongside the Microsoft Store version; it appears in Game Bar as **SteamGridDB (Community)**. Open its Settings (gear icon) and paste your [SteamGridDB API key](https://www.steamgriddb.com/profile/preferences/api).
 

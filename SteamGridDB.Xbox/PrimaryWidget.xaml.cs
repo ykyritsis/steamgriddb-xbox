@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 
 using Windows.Data.Json;
 using Windows.Storage;
+using Windows.Storage.Search;
 using Windows.Storage.Streams;
 using Windows.UI.ViewManagement.Core;
 using Windows.UI.Xaml;
@@ -64,6 +65,12 @@ namespace SteamGridDB.Xbox
 
         // Incremented every time the artwork panel opens or closes, so late results from a previous game are discarded
         private int gridPanelRequestId;
+
+        // Watches the Xbox app's manifests so newly detected games appear without a manual refresh
+        private StorageFileQueryResult manifestQuery;
+        private DispatcherTimer manifestDebounceTimer;
+        private string loadedManifestSignature;
+        private bool manifestReloadPending;
 
         private GameEntry currentSelectedGame;
         public GameEntry CurrentSelectedGame
@@ -286,6 +293,8 @@ namespace SteamGridDB.Xbox
                 }
 
                 StatusText.Text = status;
+
+                await WatchManifestsAsync(thirdPartyFolder);
             }
             catch (Exception ex)
             {
@@ -294,7 +303,125 @@ namespace SteamGridDB.Xbox
             finally
             {
                 isBusy = false;
+
+                // Pick up a library change that arrived while busy (no-op when nothing changed)
+                ReloadIfPending();
             }
+        }
+
+        /// <summary>
+        /// Remembers the state of the manifests just loaded and starts watching them, so games the Xbox app adds or
+        /// removes while the widget is open show up without a manual refresh.
+        /// </summary>
+        private async Task WatchManifestsAsync(StorageFolder thirdPartyFolder)
+        {
+            try
+            {
+                loadedManifestSignature = await GetManifestSignatureAsync(thirdPartyFolder);
+
+                if (manifestQuery != null)
+                {
+                    return;
+                }
+
+                QueryOptions options = new QueryOptions(CommonFileQuery.DefaultQuery, new[] { manifestFileExtension })
+                {
+                    FolderDepth = FolderDepth.Deep,
+                    IndexerOption = IndexerOption.DoNotUseIndexer
+                };
+
+                manifestQuery = thirdPartyFolder.CreateFileQueryWithOptions(options);
+                manifestQuery.ContentsChanged += ManifestQuery_ContentsChanged;
+
+                // Change notifications only start once the query has been run
+                await manifestQuery.GetFilesAsync();
+
+                manifestDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+                manifestDebounceTimer.Tick += ManifestDebounceTimer_Tick;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Could not watch manifests: {ex.Message}");
+            }
+        }
+
+        private void ManifestQuery_ContentsChanged(IStorageQueryResultBase sender, object args)
+        {
+            // Raised on a background thread, often several times per write - restart the debounce timer on the UI thread
+            var _ = Dispatcher.RunAsync(Windows.UI.Core.CoreDispatcherPriority.Normal, () =>
+            {
+                manifestDebounceTimer?.Stop();
+                manifestDebounceTimer?.Start();
+            });
+        }
+
+        private async void ManifestDebounceTimer_Tick(object sender, object e)
+        {
+            manifestDebounceTimer.Stop();
+
+            await ReloadIfManifestsChangedAsync();
+        }
+
+        /// <summary>
+        /// Reloads the library if a manifest changed since the last load. Waits while busy or while a panel is open.
+        /// </summary>
+        private async Task ReloadIfManifestsChangedAsync()
+        {
+            if (isBusy || GridSelectionPanel.Visibility == Visibility.Visible || GameSearchPanel.Visibility == Visibility.Visible)
+            {
+                manifestReloadPending = true;
+
+                return;
+            }
+
+            manifestReloadPending = false;
+
+            try
+            {
+                StorageFolder thirdPartyFolder = await GetThirdPartyLibrariesFolderAsync();
+
+                // The widget's own artwork writes also raise change events; only manifest changes matter
+                if (thirdPartyFolder == null || await GetManifestSignatureAsync(thirdPartyFolder) == loadedManifestSignature)
+                {
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Could not check manifests: {ex.Message}");
+
+                return;
+            }
+
+            await LoadGameEntriesAsync();
+        }
+
+        private async void ReloadIfPending()
+        {
+            if (manifestReloadPending)
+            {
+                await ReloadIfManifestsChangedAsync();
+            }
+        }
+
+        /// <summary>
+        /// Size and modification time of every store manifest, as one comparable string.
+        /// </summary>
+        private static async Task<string> GetManifestSignatureAsync(StorageFolder thirdPartyFolder)
+        {
+            List<string> parts = new List<string>();
+
+            foreach (StorageFolder folder in await thirdPartyFolder.GetFoldersAsync())
+            {
+                if (await folder.TryGetItemAsync($"{folder.Name}{manifestFileExtension}") is StorageFile manifestFile)
+                {
+                    Windows.Storage.FileProperties.BasicProperties properties = await manifestFile.GetBasicPropertiesAsync();
+
+                    parts.Add($"{folder.Name}:{properties.Size}:{properties.DateModified.UtcTicks}");
+                }
+            }
+
+            return string.Join("|", parts);
         }
 
         /// <summary>
@@ -513,7 +640,17 @@ namespace SteamGridDB.Xbox
                 }
             }
 
-            if (game.Platform == GamePlatform.GOG)
+            if (game.Platform == GamePlatform.Steam)
+            {
+                // New releases are often not linked to their Steam ID on SteamGridDB yet
+                string steamName = await GetSteamGameNameAsync(game.ExternalPlatformId);
+
+                if (!string.IsNullOrEmpty(steamName))
+                {
+                    game.Name = steamName;
+                }
+            }
+            else if (game.Platform == GamePlatform.GOG)
             {
                 if (!gogNameCache.TryGetValue(game.ExternalPlatformId, out string gogName) || string.IsNullOrEmpty(gogName))
                 {
@@ -823,6 +960,9 @@ namespace SteamGridDB.Xbox
             finally
             {
                 isBusy = false;
+
+                // Pick up a library change that arrived while busy (no-op when nothing changed)
+                ReloadIfPending();
             }
         }
 
@@ -959,6 +1099,9 @@ namespace SteamGridDB.Xbox
             finally
             {
                 isBusy = false;
+
+                // Pick up a library change that arrived while busy (no-op when nothing changed)
+                ReloadIfPending();
             }
         }
 
@@ -1340,6 +1483,9 @@ namespace SteamGridDB.Xbox
             // Restore focus to the button that opened this panel
             lastFocusedButton?.Focus(FocusState.Programmatic);
             lastFocusedButton = null;
+
+            // Apply a library change that arrived while the panel was open
+            ReloadIfPending();
         }
 
         /// <summary>
@@ -1626,6 +1772,12 @@ namespace SteamGridDB.Xbox
                 lastFocusedButton.Focus(FocusState.Programmatic);
                 lastFocusedButton = null;
             }
+
+            // Not when switching straight to the artwork panel
+            if (restoreFocus)
+            {
+                ReloadIfPending();
+            }
         }
 
         /// <summary>
@@ -1762,6 +1914,41 @@ namespace SteamGridDB.Xbox
                 default:
                     return null;
             }
+        }
+
+        /// <summary>
+        /// Fetches game name from the Steam store API by app ID.
+        /// </summary>
+        /// <param name="appId">The Steam app ID</param>
+        /// <returns>Game name or null if not found</returns>
+        private async Task<string> GetSteamGameNameAsync(string appId)
+        {
+            try
+            {
+                string url = $"https://store.steampowered.com/api/appdetails?appids={Uri.EscapeDataString(appId)}&filters=basic";
+                HttpResponseMessage response = await sharedHttpClient.GetAsync(new Uri(url));
+
+                if (response.IsSuccessStatusCode &&
+                    JsonObject.TryParse(await response.Content.ReadAsStringAsync(), out JsonObject root) &&
+                    root.TryGetValue(appId, out IJsonValue appValue) && appValue.ValueType == JsonValueType.Object)
+                {
+                    JsonObject app = appValue.GetObject();
+
+                    if (app.GetNamedBoolean("success", false) && app.TryGetValue("data", out IJsonValue data) && data.ValueType == JsonValueType.Object)
+                    {
+                        string name = GetJsonString(data.GetObject(), "name");
+
+                        // Steam names often carry trademark symbols that would break exact matching elsewhere
+                        return name?.Replace("™", string.Empty).Replace("®", string.Empty).Trim();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error fetching Steam game name for {appId}: {ex.Message}");
+            }
+
+            return null;
         }
 
         /// <summary>
