@@ -1072,16 +1072,17 @@ namespace SteamGridDB.Xbox
 
                 bool closedAutomatically = await CustomLibraryWriter.TryCloseXboxAppAsync();
 
-                if (closedAutomatically)
-                {
-                    await Task.Delay(1500);
-                }
-                else
+                // Any Xbox app process left running saves its own copy of the library over the file (seen in testing:
+                // entries written while XboxPcTray was still running were wiped), so do not write until it has exited
+                int stillRunning = closedAutomatically ? 0 : await CustomLibraryWriter.GetRunningProcessCountAsync();
+
+                while (stillRunning != 0)
                 {
                     ContentDialog closeDialog = CreateDialog(
                         "Close the Xbox app",
-                        "The Xbox app could not be closed automatically. It saves over its library while running, so please close it completely " +
-                        "(including from the system tray), then press Continue.",
+                        (stillRunning > 0 ? $"The Xbox app is still running ({stillRunning} process{(stillRunning == 1 ? string.Empty : "es")}). " : "The Xbox app could not be closed automatically. ") +
+                        "It saves over its library while running, so please close it completely - including its icon in the system tray " +
+                        "(right-click > Exit) - then press Continue.",
                         "Continue");
 
                     if (await closeDialog.ShowAsync() != ContentDialogResult.Primary)
@@ -1090,21 +1091,43 @@ namespace SteamGridDB.Xbox
 
                         return;
                     }
+
+                    // -1 means it cannot be checked without diagnostic access - trust the user
+                    stillRunning = await CustomLibraryWriter.GetRunningProcessCountAsync();
+
+                    if (stillRunning < 0)
+                    {
+                        break;
+                    }
                 }
+
+                await Task.Delay(1000);
 
                 List<string> addedIds = await CustomLibraryWriter.AddEntriesAsync(entries);
 
                 // In Xbox full screen experience Windows restarts the Xbox app within a second of closing it,
                 // so it may already have loaded the old library - close it once more so the restart reads the new one
-                if (closedAutomatically)
+                await Task.Delay(1500);
+
+                if (await CustomLibraryWriter.GetRunningProcessCountAsync() > 0)
                 {
-                    await Task.Delay(1500);
                     await CustomLibraryWriter.TryCloseXboxAppAsync();
                 }
 
-                await Task.Delay(3000);
+                // Watch for a while: an overwrite shows up within seconds of the Xbox app starting
+                int kept = 0;
 
-                int kept = await CustomLibraryWriter.CountEntriesAsync(addedIds);
+                for (int check = 0; check < 5; check++)
+                {
+                    await Task.Delay(2000);
+
+                    kept = await CustomLibraryWriter.CountEntriesAsync(addedIds);
+
+                    if (kept < addedIds.Count)
+                    {
+                        break;
+                    }
+                }
 
                 StatusText.Text = kept == addedIds.Count
                     ? $"Added {kept} Steam game{(kept == 1 ? string.Empty : "s")} to the Xbox app - open the Xbox app to see {(kept == 1 ? "it" : "them")}"

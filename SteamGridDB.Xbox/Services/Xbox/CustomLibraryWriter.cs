@@ -128,6 +128,30 @@ namespace SteamGridDB.Xbox.Services.Xbox
         }
 
         /// <summary>
+        /// Number of running Xbox app processes, or -1 when that cannot be determined (no diagnostic access).
+        /// </summary>
+        public static async Task<int> GetRunningProcessCountAsync()
+        {
+            try
+            {
+                if (await AppDiagnosticInfo.RequestAccessAsync() != DiagnosticAccessStatus.Allowed)
+                {
+                    return -1;
+                }
+
+                IList<AppDiagnosticInfo> infos = await AppDiagnosticInfo.RequestInfoForPackageAsync(XboxAppPackageFamilyName);
+
+                return infos.SelectMany(i => i.GetResourceGroups()).Sum(g => g.GetProcessDiagnosticInfos().Count);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Could not check whether the Xbox app is running: {ex.Message}");
+
+                return -1;
+            }
+        }
+
+        /// <summary>
         /// Tries to close the Xbox app so it does not overwrite the manifest. Needs the user to allow diagnostic access.
         /// </summary>
         /// <returns>True when the Xbox app is not running afterwards.</returns>
@@ -141,7 +165,6 @@ namespace SteamGridDB.Xbox.Services.Xbox
                 }
 
                 IList<AppDiagnosticInfo> infos = await AppDiagnosticInfo.RequestInfoForPackageAsync(XboxAppPackageFamilyName);
-                bool allClosed = true;
 
                 foreach (AppDiagnosticInfo info in infos)
                 {
@@ -156,13 +179,25 @@ namespace SteamGridDB.Xbox.Services.Xbox
 
                         if (result.ExtendedError != null)
                         {
-                            System.Diagnostics.Debug.WriteLine($"Could not close the Xbox app: {result.ExtendedError.Message}");
-                            allClosed = false;
+                            System.Diagnostics.Debug.WriteLine($"Could not close part of the Xbox app: {result.ExtendedError.Message}");
                         }
                     }
                 }
 
-                return allClosed;
+                // A successful terminate request does not mean the processes are gone. The Xbox app runs several
+                // (XboxPcApp, XboxPcAppFT, XboxPcTray...) and any one left running can save over the library, so
+                // only report success once none are left.
+                for (int attempt = 0; attempt < 10; attempt++)
+                {
+                    if (await GetRunningProcessCountAsync() == 0)
+                    {
+                        return true;
+                    }
+
+                    await Task.Delay(500);
+                }
+
+                return false;
             }
             catch (Exception ex)
             {
