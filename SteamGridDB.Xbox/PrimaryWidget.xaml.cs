@@ -50,6 +50,8 @@ namespace SteamGridDB.Xbox
         private const string manifestFileExtension = ".manifest";
         private const string steamGridDbSource = "SteamGridDB";
         private const int nameLookupConcurrency = 4;
+        private const int fixLibraryConcurrency = 3;
+        private const int thumbnailDecodeSize = 80;
         private const int manifestReadAttempts = 3;
         private const string restartHint = "restart the Xbox app if the new artwork does not show up straight away";
 
@@ -591,11 +593,42 @@ namespace SteamGridDB.Xbox
             {
                 IEnumerable<Task> lookups = games.Select(async game =>
                 {
+                    string cacheKey = GameInfoCache.GetKey(game.Platform.ToString(), game.ExternalPlatformId);
+                    CachedGameInfo cached = await GameInfoCache.TryGetAsync(cacheKey, sgdbClient != null);
+
+                    if (cached != null)
+                    {
+                        // Custom games keep the title the user gave them in the Xbox app
+                        if (game.Platform != GamePlatform.Custom && !string.IsNullOrEmpty(cached.Name))
+                        {
+                            game.Name = cached.Name;
+                        }
+
+                        game.SteamGridDbGameId = cached.SteamGridDbGameId;
+                        game.HasSteamGridDBMatch = cached.HasSteamGridDBMatch;
+                        completed++;
+
+                        return;
+                    }
+
                     await throttle.WaitAsync();
 
                     try
                     {
                         await ResolveGameNameAsync(sgdbClient, game);
+
+                        // Nothing resolved usually means the network was unavailable - try again next time
+                        if (game.Name != unknownName || game.HasSteamGridDBMatch)
+                        {
+                            await GameInfoCache.SetAsync(cacheKey, new CachedGameInfo
+                            {
+                                Name = game.Name == unknownName ? null : game.Name,
+                                SteamGridDbGameId = game.SteamGridDbGameId,
+                                HasSteamGridDBMatch = game.HasSteamGridDBMatch,
+                                ResolvedWithSteamGridDb = sgdbClient != null,
+                                ResolvedAt = DateTimeOffset.UtcNow
+                            });
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -612,6 +645,8 @@ namespace SteamGridDB.Xbox
 
                 await Task.WhenAll(lookups);
             }
+
+            await GameInfoCache.SaveAsync();
         }
 
         private async Task ResolveGameNameAsync(SteamGridDbClient sgdbClient, GameEntry game)
@@ -850,6 +885,8 @@ namespace SteamGridDB.Xbox
 
             if ((apiKeyBox.Text ?? string.Empty).Trim() != currentApiKey)
             {
+                // Matches made with a different key (or none) may be incomplete
+                await GameInfoCache.ClearAsync();
                 await LoadGameEntriesAsync();
             }
             else
@@ -915,9 +952,13 @@ namespace SteamGridDB.Xbox
                 int errorCount = 0;
 
                 using (SteamGridDbClient client = CreateSteamGridDbClient())
+                using (SemaphoreSlim throttle = new SemaphoreSlim(fixLibraryConcurrency))
                 {
-                    foreach (GameEntry game in eligibleGames)
+                    // A few games at a time: most of the time is spent waiting on downloads
+                    await Task.WhenAll(eligibleGames.Select(async game =>
                     {
+                        await throttle.WaitAsync();
+
                         try
                         {
                             StatusText.Text = $"Fixing {game.Name} ({successCount + notFoundCount + errorCount + 1}/{eligibleGames.Count})...";
@@ -945,7 +986,11 @@ namespace SteamGridDB.Xbox
 
                             System.Diagnostics.Debug.WriteLine($"Error processing {game.Name}: {ex.Message}");
                         }
-                    }
+                        finally
+                        {
+                            throttle.Release();
+                        }
+                    }));
                 }
 
                 StatusText.Text = $"Fixing library is complete: {successCount} updated, {notFoundCount} had no artwork available, {errorCount} error{(errorCount == 1 ? string.Empty : "s")}" +
@@ -1881,7 +1926,8 @@ namespace SteamGridDB.Xbox
             await stream.WriteAsync(buffer);
             stream.Seek(0);
 
-            BitmapImage image = new BitmapImage();
+            // Covers are shown at 80px; decoding a 1024px image at full size costs ~4 MB of memory per game
+            BitmapImage image = new BitmapImage { DecodePixelWidth = thumbnailDecodeSize, DecodePixelType = DecodePixelType.Logical };
             await image.SetSourceAsync(stream);
 
             return image;

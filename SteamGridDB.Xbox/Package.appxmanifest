@@ -13,7 +13,7 @@
   <Identity
     Name="SteamGridDBforXbox.Community"
     Publisher="CN=SteamGridDB for Xbox Community Build"
-    Version="1.5.1.0" />
+    Version="1.5.2.0" />
 
   <mp:PhoneIdentity PhoneProductId="556a41b4-fae4-4e6f-925e-cd8945b576d5" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 

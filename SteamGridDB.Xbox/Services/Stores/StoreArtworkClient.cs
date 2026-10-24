@@ -63,6 +63,14 @@ namespace SteamGridDB.Xbox.Services.Stores
                 return new List<StoreArtwork>();
             }
 
+            // Reopening the artwork panel, or "Fix my library" after browsing, often repeats the same search
+            string cacheKey = $"{NormaliseTitle(gameName)}|{maxPerSource}";
+
+            if (searchCache.TryGetValue(cacheKey, out List<StoreArtwork> cached))
+            {
+                return cached.ToList();
+            }
+
             Task<List<StoreArtwork>>[] tasks =
             {
                 SafeSearchAsync(SearchXboxAsync, gameName, maxPerSource),
@@ -71,9 +79,19 @@ namespace SteamGridDB.Xbox.Services.Stores
             };
 
             List<StoreArtwork>[] results = await Task.WhenAll(tasks);
+            List<StoreArtwork> all = results.SelectMany(r => r).ToList();
 
-            return results.SelectMany(r => r).ToList();
+            // Empty results are not cached: they are usually a temporary network failure
+            if (all.Count > 0)
+            {
+                searchCache[cacheKey] = all;
+            }
+
+            return all.ToList();
         }
+
+        // Session-lifetime cache of store searches, keyed by normalised name and result count
+        private static readonly Dictionary<string, List<StoreArtwork>> searchCache = new Dictionary<string, List<StoreArtwork>>();
 
         /// <summary>
         /// Returns the best artwork whose title is an exact (normalised) match for the game name, or null.
