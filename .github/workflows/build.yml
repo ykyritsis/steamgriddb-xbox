@@ -3,6 +3,8 @@ name: Build
 on:
   push:
     branches: [master]
+    # Pushing a tag like v1.6.3 also publishes a GitHub release
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -22,8 +24,8 @@ jobs:
 
       - uses: microsoft/setup-msbuild@v2
 
-      # Uses a stable certificate from repository secrets when configured (so users only trust it once),
-      # otherwise creates a throwaway self-signed one for this build.
+      # Uses the stable certificate from repository secrets when configured (so users only trust it once),
+      # otherwise creates a throwaway self-signed one for this build (e.g. pull requests from forks).
       - name: Prepare signing certificate
         shell: pwsh
         env:
@@ -35,6 +37,7 @@ jobs:
             [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:SIGNING_PFX_BASE64))
             $password = $env:SIGNING_PFX_PASSWORD
           } else {
+            if ('${{ github.ref }}'.StartsWith('refs/tags/')) { throw 'Releases must be signed with the stable certificate - set the SIGNING_PFX_* secrets' }
             $password = [Guid]::NewGuid().ToString()
             $cert = New-SelfSignedCertificate -Type Custom -Subject $env:CERT_SUBJECT -KeyUsage DigitalSignature `
               -FriendlyName 'SteamGridDB for Xbox Community Build' -CertStoreLocation 'Cert:\CurrentUser\My' `
@@ -48,6 +51,15 @@ jobs:
           "PFX_PATH=$pfxPath" >> $env:GITHUB_ENV
           "::add-mask::$password"
           "PFX_PASSWORD=$password" >> $env:GITHUB_ENV
+
+      - name: Check tag matches package version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          [xml]$manifest = Get-Content SteamGridDB.Xbox\Package.appxmanifest
+          $version = $manifest.Package.Identity.Version
+          $tag = '${{ github.ref_name }}'.TrimStart('v')
+          if ("$version" -ne "$tag" -and "$version" -ne "$tag.0") { throw "Tag $tag does not match the package version $version" }
 
       - name: Restore
         run: msbuild SteamGridDB.Xbox.sln /t:Restore /p:Configuration=Release /p:Platform=${{ matrix.platform }}
@@ -67,7 +79,77 @@ jobs:
           /p:AppxPackageDir="${{ github.workspace }}\out\"
           /m
 
+      # Simple user-facing zip: the package, its certificate, the runtime packages for this CPU and the installer
+      - name: Create installer zip
+        shell: pwsh
+        run: |
+          [xml]$manifest = Get-Content SteamGridDB.Xbox\Package.appxmanifest
+          $version = $manifest.Package.Identity.Version
+          $platform = '${{ matrix.platform }}'
+          $stage = Join-Path $env:RUNNER_TEMP 'stage'
+          New-Item -ItemType Directory -Force "$stage\Dependencies" | Out-Null
+
+          $msix = Get-ChildItem out -Recurse -Filter '*.msix' | Select-Object -First 1
+          Copy-Item $msix.FullName "$stage\SteamGridDB.Xbox.Community_$platform.msix"
+          Copy-Item out\SteamGridDB.Xbox.Community.cer $stage
+          Get-ChildItem out -Recurse -Filter '*.appx' | Where-Object { $_.Directory.Name -eq $platform } | Copy-Item -Destination "$stage\Dependencies"
+          if (-not (Get-ChildItem "$stage\Dependencies")) { throw "No runtime packages found for $platform" }
+          Copy-Item install.ps1, Install.cmd $stage
+
+          New-Item -ItemType Directory -Force release | Out-Null
+          Compress-Archive -Path "$stage\*" -DestinationPath "release\SteamGridDB.Xbox.Community_${version}_$platform.zip"
+          Get-ChildItem $stage -Recurse | Select-Object FullName, Length
+
       - uses: actions/upload-artifact@v4
         with:
           name: SteamGridDB.Xbox.Community-${{ matrix.platform }}
           path: out/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.platform }}
+          path: release/
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: installer-*
+          path: release
+          merge-multiple: true
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<'EOF'
+          ## Install
+
+          **Easiest:** download the zip for your PC below (**x64** for most PCs and the ROG Ally / Xbox Ally, **ARM64** for Snapdragon), unzip it, and double-click **Install.cmd**.
+
+          **Or** paste this into PowerShell:
+
+          ```powershell
+          irm https://raw.githubusercontent.com/ykyritsis/steamgriddb-xbox/master/install.ps1 | iex
+          ```
+
+          The installer asks for administrator permission once to trust the package certificate, then installs or updates the widget. Afterwards, allow it under *Settings > Privacy & security > File system*, open Game Bar (Win+G) and add **SteamGridDB (Community)**, then paste your [SteamGridDB API key](https://www.steamgriddb.com/profile/preferences/api) in its Settings.
+
+          The Microsoft Store version is not needed.
+
+          ## Changes
+          EOF
+          previous=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)
+          if [ -n "$previous" ]; then range="$previous..$GITHUB_REF_NAME"; else range="fdd334e..$GITHUB_REF_NAME"; fi  # first release: changes since the fork point
+          git log --no-merges --format='- %s' "$range" >> notes.md || git log --no-merges --format='- %s' -20 >> notes.md
+          gh release create "$GITHUB_REF_NAME" release/*.zip --title "SteamGridDB for Xbox (Community) $GITHUB_REF_NAME" --notes-file notes.md

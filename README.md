@@ -1,6 +1,6 @@
 # SteamGridDB for Xbox
 
-> **Community fork (1.6.2)** of [lirrik/steamgriddb-xbox](https://github.com/lirrik/steamgriddb-xbox) with fixes for games going missing from the list and artwork changes not sticking, plus extra square artwork sources.
+> **Community fork (1.6.3)** of [lirrik/steamgriddb-xbox](https://github.com/lirrik/steamgriddb-xbox) with fixes for games going missing from the list and artwork changes not sticking, plus extra square artwork sources.
 >
 > **Fixed**
 > - **Games missing or a different number found on every refresh** ([upstream #7](https://github.com/lirrik/steamgriddb-xbox/issues/7)): one unreadable manifest entry or locked image used to silently drop every remaining game from that store. Each entry is now handled on its own, manifests are re-read if the Xbox app is mid-write, and refreshes can no longer overlap.
@@ -21,7 +21,24 @@
 > - The list reloads automatically when the Xbox app adds or removes games while the widget is open.
 > - Faster and lighter: game lookups are cached between sessions, covers are decoded at display size, store searches are cached, and "Fix my library" processes several games at once.
 >
-> **Installing a build**: download the artifact for your CPU (x64 for most PCs and the ROG Ally, ARM64 for Snapdragon) from the latest [Build workflow run](../../actions/workflows/build.yml). Unzip it, then right-click `Install.ps1` and choose *Run with PowerShell*. The script trusts the included certificate and installs the package. This build is fully standalone and does not need the Microsoft Store version; it appears in Game Bar as **SteamGridDB (Community)**. If you already have the Store version installed you can keep it or uninstall it. Open its Settings (gear icon) and paste your [SteamGridDB API key](https://www.steamgriddb.com/profile/preferences/api).
+## Install
+>
+> **Option 1:** go to the [latest release](https://github.com/ykyritsis/steamgriddb-xbox/releases/latest), download the zip for your PC (**x64** for most PCs and the ROG Ally / Xbox Ally, **ARM64** for Snapdragon), unzip it and double-click **`Install.cmd`**.
+>
+> **Option 2:** paste this into PowerShell (it picks the right download for your PC automatically):
+>
+> ```powershell
+> irm https://raw.githubusercontent.com/ykyritsis/steamgriddb-xbox/master/install.ps1 | iex
+> ```
+>
+> The installer asks for administrator permission **once** to trust the package's signing certificate, then installs the widget and anything it needs. Run it again any time to update; updates don't need the admin prompt.
+>
+> **After installing:**
+> 1. Turn on **SteamGridDB for Xbox (Community)** under *Settings > Privacy & security > File system* (the installer opens this page).
+> 2. Open Game Bar (**Win+G**), open the widget menu and pick **SteamGridDB (Community)**.
+> 3. Click the gear icon and paste your free [SteamGridDB API key](https://www.steamgriddb.com/profile/preferences/api).
+>
+> This build is standalone: you don't need the Microsoft Store version. If you have it, you can keep it or uninstall it.
 
 
 Xbox Game Bar widget to customise Xbox PC app game artwork with images from [SteamGridDB](https://www.steamgriddb.com/). Replace wrong, low-resolution or missing images for games from third-party stores (Steam, GOG, Epic Games Store, EA App, Ubisoft Connect or manually added games) with high-quality artwork submitted by community.
