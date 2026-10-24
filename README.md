@@ -19,9 +19,8 @@
 > - Steam games SteamGridDB doesn't know by ID yet (new releases) get their name from the Steam store, so they no longer show as Unknown.
 > - The list reloads automatically when the Xbox app adds or removes games while the widget is open.
 >
-> **Installing a build**: download the artifact for your CPU (x64 for most PCs and the ROG Ally, ARM64 for Snapdragon) from the latest [Build workflow run](../../actions/workflows/build.yml). Unzip it, then right-click `Install.ps1` and choose *Run with PowerShell*. The script trusts the included certificate and installs the package. This build has its own identity, so it installs alongside the Microsoft Store version; it appears in Game Bar as **SteamGridDB (Community)**. Open its Settings (gear icon) and paste your [SteamGridDB API key](https://www.steamgriddb.com/profile/preferences/api).
+> **Installing a build**: download the artifact for your CPU (x64 for most PCs and the ROG Ally, ARM64 for Snapdragon) from the latest [Build workflow run](../../actions/workflows/build.yml). Unzip it, then right-click `Install.ps1` and choose *Run with PowerShell*. The script trusts the included certificate and installs the package. This build is fully standalone and does not need the Microsoft Store version; it appears in Game Bar as **SteamGridDB (Community)**. If you already have the Store version installed you can keep it or uninstall it. Open its Settings (gear icon) and paste your [SteamGridDB API key](https://www.steamgriddb.com/profile/preferences/api).
 
-[![Get it from Microsoft](https://get.microsoft.com/images/en-us%20dark.svg)](https://apps.microsoft.com/detail/9pkqx0rjc32v)
 
 Xbox Game Bar widget to customise Xbox PC app game artwork with images from [SteamGridDB](https://www.steamgriddb.com/). Replace wrong, low-resolution or missing images for games from third-party stores (Steam, GOG, Epic Games Store, EA App, Ubisoft Connect or manually added games) with high-quality artwork submitted by community.
 
