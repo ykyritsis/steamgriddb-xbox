@@ -55,7 +55,7 @@ namespace SteamGridDB.Xbox
         private const int fixLibraryConcurrency = 3;
         private const int thumbnailDecodeSize = 80;
         private const int manifestReadAttempts = 3;
-        private const string restartHint = "restart the Xbox app if the new artwork does not show up straight away";
+        private const string restartHint = "switch tabs in the Xbox app (e.g. to Home and back to Library) to see the new artwork";
 
         private static Dictionary<string, string> ubisoftGameLookupCache = null;
         private static readonly Dictionary<string, string> gogNameCache = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
