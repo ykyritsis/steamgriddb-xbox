@@ -977,7 +977,13 @@ namespace SteamGridDB.Xbox
                     ? $" {withoutCover} Steam game{(withoutCover == 1 ? " is" : "s are")} in the Xbox app but without a cover, which the Xbox app may hide - use Fix my library to add covers."
                     : string.Empty;
 
-                if (missingGames.Count == 0)
+                // Games the Xbox app detected can still be hidden by it (e.g. EA SPORTS FC 27, even with a cover),
+                // so offer those too - unticked, since most of them are visible
+                List<InstalledSteamGame> detectedGames = installedGames
+                    .Where(g => inXboxApp.Contains(g.AppId) && !existingLaunchArguments.Any(args => LaunchesSteamApp(args, g.AppId)))
+                    .ToList();
+
+                if (missingGames.Count == 0 && detectedGames.Count == 0)
                 {
                     StatusText.Text = $"All {installedGames.Count} installed Steam games are already in the Xbox app.{coverHint}";
 
@@ -987,16 +993,37 @@ namespace SteamGridDB.Xbox
                 // Let the user pick which games to add
                 StackPanel list = new StackPanel { Spacing = 4 };
 
-                foreach (InstalledSteamGame game in missingGames)
+                if (missingGames.Count > 0)
                 {
-                    list.Children.Add(new CheckBox { Content = game.Name, Tag = game, IsChecked = true });
+                    list.Children.Add(new TextBlock { Text = "Not in the Xbox app", FontWeight = Windows.UI.Text.FontWeights.SemiBold });
+
+                    foreach (InstalledSteamGame game in missingGames)
+                    {
+                        list.Children.Add(new CheckBox { Content = game.Name, Tag = game, IsChecked = true });
+                    }
+                }
+
+                if (detectedGames.Count > 0)
+                {
+                    list.Children.Add(new TextBlock
+                    {
+                        Text = "Detected by the Xbox app - tick any you can't see there",
+                        FontWeight = Windows.UI.Text.FontWeights.SemiBold,
+                        Margin = new Thickness(0, missingGames.Count > 0 ? 12 : 0, 0, 0)
+                    });
+
+                    foreach (InstalledSteamGame game in detectedGames)
+                    {
+                        list.Children.Add(new CheckBox { Content = game.Name, Tag = game, IsChecked = false });
+                    }
                 }
 
                 StackPanel content = new StackPanel { Spacing = 12 };
                 content.Children.Add(new TextBlock
                 {
-                    Text = $"These Steam games are installed but not in the Xbox app. They will be added as custom games that launch through Steam, with cover art.{coverHint}\n\n" +
-                           "The Xbox app will be closed while its library is updated.",
+                    Text = "Ticked games will be added as custom games that launch through Steam, with cover art." +
+                           (missingGames.Count == 0 ? " All installed Steam games are detected, but the Xbox app sometimes hides some of them." : string.Empty) +
+                           $"{coverHint}\n\nThe Xbox app will be closed while its library is updated.",
                     TextWrapping = TextWrapping.Wrap
                 });
                 content.Children.Add(new ScrollViewer { Content = list, MaxHeight = 260 });
