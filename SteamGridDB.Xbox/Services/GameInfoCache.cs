@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 
 using Windows.Data.Json;
@@ -41,6 +42,9 @@ namespace SteamGridDB.Xbox.Services
         private static Dictionary<string, CachedGameInfo> entries;
         private static bool dirty;
 
+        // Game Bar can host several widget windows, each with its own UI thread, sharing this cache
+        private static readonly object sync = new object();
+
         public static string GetKey(string platform, string externalPlatformId) => $"{platform}:{externalPlatformId}";
 
         /// <summary>
@@ -51,9 +55,14 @@ namespace SteamGridDB.Xbox.Services
         {
             await EnsureLoadedAsync();
 
-            if (!entries.TryGetValue(key, out CachedGameInfo info))
+            CachedGameInfo info;
+
+            lock (sync)
             {
-                return null;
+                if (!entries.TryGetValue(key, out info))
+                {
+                    return null;
+                }
             }
 
             TimeSpan lifetime = info.HasSteamGridDBMatch ? matchedLifetime : unmatchedLifetime;
@@ -70,8 +79,11 @@ namespace SteamGridDB.Xbox.Services
         {
             await EnsureLoadedAsync();
 
-            entries[key] = info;
-            dirty = true;
+            lock (sync)
+            {
+                entries[key] = info;
+                dirty = true;
+            }
         }
 
         /// <summary>
@@ -81,8 +93,11 @@ namespace SteamGridDB.Xbox.Services
         {
             await EnsureLoadedAsync();
 
-            entries.Clear();
-            dirty = true;
+            lock (sync)
+            {
+                entries.Clear();
+                dirty = true;
+            }
 
             await SaveAsync();
         }
@@ -92,16 +107,25 @@ namespace SteamGridDB.Xbox.Services
         /// </summary>
         public static async Task SaveAsync()
         {
-            if (!dirty || entries == null)
+            List<KeyValuePair<string, CachedGameInfo>> snapshot;
+
+            lock (sync)
             {
-                return;
+                if (!dirty || entries == null)
+                {
+                    return;
+                }
+
+                // Work from a copy so other lookups can keep updating the cache meanwhile
+                snapshot = entries.ToList();
+                dirty = false;
             }
 
             try
             {
                 JsonObject root = new JsonObject();
 
-                foreach (KeyValuePair<string, CachedGameInfo> entry in entries)
+                foreach (KeyValuePair<string, CachedGameInfo> entry in snapshot)
                 {
                     JsonObject item = new JsonObject
                     {
@@ -121,12 +145,15 @@ namespace SteamGridDB.Xbox.Services
 
                 StorageFile file = await ApplicationData.Current.LocalFolder.CreateFileAsync(cacheFileName, CreationCollisionOption.ReplaceExisting);
                 await FileIO.WriteTextAsync(file, root.Stringify());
-
-                dirty = false;
             }
             catch (Exception ex)
             {
-                // The cache is an optimisation only
+                // The cache is an optimisation only - try again on the next save
+                lock (sync)
+                {
+                    dirty = true;
+                }
+
                 System.Diagnostics.Debug.WriteLine($"Could not save game info cache: {ex.Message}");
             }
         }
@@ -172,9 +199,12 @@ namespace SteamGridDB.Xbox.Services
             }
 
             // Another caller may have finished loading while this one was awaiting
-            if (entries == null)
+            lock (sync)
             {
-                entries = loaded;
+                if (entries == null)
+                {
+                    entries = loaded;
+                }
             }
         }
     }

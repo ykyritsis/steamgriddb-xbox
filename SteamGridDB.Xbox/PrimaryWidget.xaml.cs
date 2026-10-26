@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -58,8 +59,8 @@ namespace SteamGridDB.Xbox
         private const string restartHint = "switch tabs in the Xbox app (e.g. to Home and back to Library) to see the new artwork";
 
         private static Dictionary<string, string> ubisoftGameLookupCache = null;
-        private static readonly Dictionary<string, string> gogNameCache = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        private static readonly Dictionary<string, string> epicNameCache = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        private static readonly ConcurrentDictionary<string, string> gogNameCache = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        private static readonly ConcurrentDictionary<string, string> epicNameCache = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         private static readonly HttpClient sharedHttpClient = new HttpClient();
 
         private Button lastFocusedButton;
@@ -214,8 +215,8 @@ namespace SteamGridDB.Xbox
                     return;
                 }
 
-                // Get all subdirectories
-                IReadOnlyList<StorageFolder> folders = await thirdPartyFolder.GetFoldersAsync();
+                // Get all subdirectories (as a copy - the live listing changes when the Xbox app writes files)
+                List<StorageFolder> folders = await StorageSnapshot.GetAsync(async () => await thirdPartyFolder.GetFoldersAsync());
 
                 string directoryNames = string.Join(", ", folders.Select(f => f.Name));
                 StatusText.Text = $"Found {folders.Count} director{(folders.Count == 1 ? "y" : "ies")} ({directoryNames}). Reading manifests...";
@@ -233,17 +234,31 @@ namespace SteamGridDB.Xbox
                         continue;
                     }
 
-                    JsonObject gameCache = await ReadGameCacheAsync(folder);
+                    List<KeyValuePair<string, IJsonValue>> gameCacheEntries;
 
-                    if (gameCache == null)
+                    try
                     {
+                        JsonObject gameCache = await ReadGameCacheAsync(folder);
+
+                        if (gameCache == null)
+                        {
+                            continue;
+                        }
+
+                        gameCacheEntries = StorageSnapshot.Copy(gameCache);
+                    }
+                    catch (Exception ex)
+                    {
+                        // One store's manifest must never stop the others from loading
+                        System.Diagnostics.Debug.WriteLine($"Could not read the {folder.Name} manifest: {ex.Message}");
+
                         continue;
                     }
 
                     // Every entry is processed on its own: previously one unexpected error (a locked image file,
                     // a number where a string was expected...) silently dropped every remaining game in that store,
                     // which is why the number of games found changed from one refresh to the next.
-                    foreach (KeyValuePair<string, IJsonValue> entry in gameCache)
+                    foreach (KeyValuePair<string, IJsonValue> entry in gameCacheEntries)
                     {
                         if (entry.Key == "version" || entry.Value.ValueType != JsonValueType.Object)
                         {
@@ -268,9 +283,17 @@ namespace SteamGridDB.Xbox
                     }
                 }
 
-                using (SteamGridDbClient sgdbClient = CreateSteamGridDbClient())
+                try
                 {
-                    await ResolveGameNamesAsync(sgdbClient, tmpGameList);
+                    using (SteamGridDbClient sgdbClient = CreateSteamGridDbClient())
+                    {
+                        await ResolveGameNamesAsync(sgdbClient, tmpGameList);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Names are a nice-to-have: always show the games that were found
+                    System.Diagnostics.Debug.WriteLine($"Could not resolve game names: {ex.Message}");
                 }
 
                 // Sort games alphabetically by name, with "Unknown" at the end
@@ -415,7 +438,7 @@ namespace SteamGridDB.Xbox
         {
             List<string> parts = new List<string>();
 
-            foreach (StorageFolder folder in await thirdPartyFolder.GetFoldersAsync())
+            foreach (StorageFolder folder in await StorageSnapshot.GetAsync(async () => await thirdPartyFolder.GetFoldersAsync()))
             {
                 if (await folder.TryGetItemAsync($"{folder.Name}{manifestFileExtension}") is StorageFile manifestFile)
                 {
@@ -596,7 +619,17 @@ namespace SteamGridDB.Xbox
                 IEnumerable<Task> lookups = games.Select(async game =>
                 {
                     string cacheKey = GameInfoCache.GetKey(game.Platform.ToString(), game.ExternalPlatformId);
-                    CachedGameInfo cached = await GameInfoCache.TryGetAsync(cacheKey, sgdbClient != null);
+                    CachedGameInfo cached = null;
+
+                    try
+                    {
+                        cached = await GameInfoCache.TryGetAsync(cacheKey, sgdbClient != null);
+                    }
+                    catch (Exception ex)
+                    {
+                        // The cache is an optimisation only - look the game up instead
+                        System.Diagnostics.Debug.WriteLine($"Game info cache lookup failed for {cacheKey}: {ex.Message}");
+                    }
 
                     if (cached != null)
                     {

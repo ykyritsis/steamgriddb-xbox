@@ -7,6 +7,8 @@ using System.Threading.Tasks;
 
 using Windows.Storage;
 
+using SteamGridDB.Xbox.Services;
+
 namespace SteamGridDB.Xbox.Services.Steam
 {
     /// <summary>
@@ -116,7 +118,8 @@ namespace SteamGridDB.Xbox.Services.Steam
                 {
                     StorageFolder steamApps = await StorageFolder.GetFolderFromPathAsync(Path.Combine(libraryPath, "steamapps"));
 
-                    foreach (StorageFile manifest in await steamApps.GetFilesAsync())
+                    // Copy the listing first: Steam writes into steamapps while games update
+                    foreach (StorageFile manifest in await StorageSnapshot.GetAsync(async () => await steamApps.GetFilesAsync()))
                     {
                         if (!manifest.Name.StartsWith("appmanifest_", StringComparison.OrdinalIgnoreCase) ||
                             !manifest.Name.EndsWith(".acf", StringComparison.OrdinalIgnoreCase))

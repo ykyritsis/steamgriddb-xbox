@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -91,7 +92,7 @@ namespace SteamGridDB.Xbox.Services.Stores
         }
 
         // Session-lifetime cache of store searches, keyed by normalised name and result count
-        private static readonly Dictionary<string, List<StoreArtwork>> searchCache = new Dictionary<string, List<StoreArtwork>>();
+        private static readonly ConcurrentDictionary<string, List<StoreArtwork>> searchCache = new ConcurrentDictionary<string, List<StoreArtwork>>();
 
         /// <summary>
         /// Returns the best artwork whose title is an exact (normalised) match for the game name, or null.
