@@ -1613,6 +1613,12 @@ namespace SteamGridDB.Xbox
 
             try
             {
+                // Tiles made from an app's icon are files in the widget's own storage, not web downloads
+                if (imageUrl.StartsWith(AppIconTiles.AppDataPrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    return await ReplaceImageCoreAsync(game, await AppIconTiles.ReadTileAsync(imageUrl), updateStatusText);
+                }
+
                 IBuffer downloadedBytes;
 
                 using (HttpResponseMessage response = await sharedHttpClient.GetAsync(new Uri(imageUrl)))
@@ -1861,8 +1867,50 @@ namespace SteamGridDB.Xbox
 
                 AddSteamGridDbArtwork(grids, icons);
 
+                int appIconCount = 0;
+
+                if (GamePlatformHelper.IsCustomLibrary(game.Platform))
+                {
+                    // Covers built from the program's own icon - always available, even when no site knows the app
+                    List<AppIconTile> tiles = await AppIconTiles.CreateTilesAsync(game.XboxPlatformId, game.ExternalPlatformId);
+
+                    if (requestId != gridPanelRequestId)
+                    {
+                        return;
+                    }
+
+                    for (int i = 0; i < tiles.Count; i++)
+                    {
+                        GridImageItem item = new GridImageItem
+                        {
+                            Url = tiles[i].Uri,
+                            ThumbUrl = tiles[i].Uri,
+                            Author = $"{tiles[i].Style} background",
+                            Style = tiles[i].Style,
+                            Source = AppIconTiles.SourceName
+                        };
+
+                        // For apps the icon tile is usually the best choice, so show it first
+                        if (game.Platform == GamePlatform.App)
+                        {
+                            GridImagesView.Items.Insert(i, item);
+                        }
+                        else
+                        {
+                            GridImagesView.Items.Add(item);
+                        }
+                    }
+
+                    appIconCount = tiles.Count;
+
+                    if (tiles.Count > 0)
+                    {
+                        FocusFirstArtwork();
+                    }
+                }
+
                 // Game stores only return unrelated games for app names
-                await AddStoreArtworkAsync(game.Platform == GamePlatform.App ? null : game.Name, requestId, grids.Count, icons.Count);
+                await AddStoreArtworkAsync(game.Platform == GamePlatform.App ? null : game.Name, requestId, grids.Count, icons.Count, appIconCount);
             }
             catch (Exception ex)
             {
@@ -1908,7 +1956,7 @@ namespace SteamGridDB.Xbox
         /// <summary>
         /// Appends Xbox Store, PlayStation Store and IGN artwork for the game name, then updates the panel status.
         /// </summary>
-        private async Task AddStoreArtworkAsync(string gameName, int requestId, int gridCount, int iconCount)
+        private async Task AddStoreArtworkAsync(string gameName, int requestId, int gridCount, int iconCount, int appIconCount = 0)
         {
             int storeCount = 0;
             bool searchStores = AppSettings.UseStoreSources && !string.IsNullOrEmpty(gameName) && gameName != unknownName;
@@ -1946,7 +1994,9 @@ namespace SteamGridDB.Xbox
                 }
             }
 
-            if (gridCount + iconCount + storeCount == 0)
+            string appIconText = appIconCount > 0 ? $"{appIconCount} made from the app's icon, " : string.Empty;
+
+            if (gridCount + iconCount + storeCount + appIconCount == 0)
             {
                 GridPanelStatus.Text = string.IsNullOrEmpty(AppSettings.SteamGridDbApiKey)
                     ? "No artworks found for this game (add a SteamGridDB API key in Settings to search SteamGridDB)"
@@ -1955,8 +2005,10 @@ namespace SteamGridDB.Xbox
                 return;
             }
 
-            GridPanelStatus.Text = $"Found {gridCount} grid{(gridCount == 1 ? "" : "s")} and {iconCount} icon{(iconCount == 1 ? "" : "s")} on SteamGridDB" +
+            string summary = $"{appIconText}found {gridCount} grid{(gridCount == 1 ? "" : "s")} and {iconCount} icon{(iconCount == 1 ? "" : "s")} on SteamGridDB" +
                 (searchStores ? $", {storeCount} from stores" : string.Empty);
+
+            GridPanelStatus.Text = char.ToUpper(summary[0]) + summary.Substring(1);
         }
 
         private void FocusFirstArtwork()

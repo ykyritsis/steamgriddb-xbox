@@ -118,6 +118,7 @@
     <Compile Include="Services\AppSettings.cs" />
     <Compile Include="Services\GameInfoCache.cs" />
     <Compile Include="Services\StorageSnapshot.cs" />
+    <Compile Include="Services\Artwork\AppIconTiles.cs" />
     <Compile Include="Services\Artwork\ArtworkFileLock.cs" />
     <Compile Include="Services\Artwork\ArtworkImageConverter.cs" />
     <Compile Include="Services\Stores\StoreArtworkClient.cs" />
