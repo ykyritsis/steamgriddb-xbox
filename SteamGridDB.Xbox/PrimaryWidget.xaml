@@ -53,6 +53,7 @@
         <Grid x:Name="MainContentPanel">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
@@ -84,7 +85,7 @@
                     FontSize="14"
                     FontWeight="SemiBold"
                     Foreground="#FFFFFF"
-                    Text="Xbox Installed Games Library" />
+                    Text="Xbox Library" />
 
                 <!--  Header Actions  -->
                 <StackPanel
@@ -151,8 +152,45 @@
                 </StackPanel>
             </Grid>
 
+            <!--  Games / Apps tabs  -->
+            <StackPanel
+                Grid.Row="1"
+                Padding="16,8"
+                Background="#1F1F1F"
+                Orientation="Horizontal"
+                Spacing="6">
+                <Button
+                    x:Name="GamesTabButton"
+                    Height="32"
+                    Padding="16,0"
+                    Click="GamesTab_Click"
+                    CornerRadius="16"
+                    Style="{StaticResource FluentIconButton}">
+                    <TextBlock x:Name="GamesTabText" FontSize="13" FontWeight="SemiBold" Text="Games" />
+                </Button>
+                <Button
+                    x:Name="AppsTabButton"
+                    Height="32"
+                    Padding="16,0"
+                    Click="AppsTab_Click"
+                    CornerRadius="16"
+                    Style="{StaticResource FluentIconButton}">
+                    <TextBlock x:Name="AppsTabText" FontSize="13" FontWeight="SemiBold" Text="Apps" />
+                </Button>
+            </StackPanel>
+
             <!--  Game entries list  -->
-            <Grid Grid.Row="1" Background="#1F1F1F">
+            <Grid Grid.Row="2" Background="#1F1F1F">
+                <!--  Shown when the selected tab has nothing in it  -->
+                <TextBlock
+                    x:Name="EmptyTabText"
+                    Margin="32"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Foreground="#99FFFFFF"
+                    TextAlignment="Center"
+                    TextWrapping="Wrap"
+                    Visibility="Collapsed" />
                 <!--  Instructions panel  -->
                 <StackPanel
                     x:Name="InstructionsPanel"
@@ -186,7 +224,7 @@
                     Padding="8,0"
                     Background="Transparent"
                     IsItemClickEnabled="False"
-                    ItemsSource="{x:Bind GameEntries}"
+                    ItemsSource="{x:Bind DisplayedEntries}"
                     SelectionMode="None">
                     <ListView.ItemContainerStyle>
                         <Style TargetType="ListViewItem">
@@ -366,7 +404,7 @@
 
             <!--  Status bar - Minimal  -->
             <Border
-                Grid.Row="2"
+                Grid.Row="3"
                 Padding="16,8"
                 Background="#252525"
                 BorderBrush="#333333"

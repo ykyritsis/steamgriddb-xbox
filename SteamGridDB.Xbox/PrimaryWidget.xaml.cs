@@ -44,6 +44,16 @@ namespace SteamGridDB.Xbox
             get; set;
         }
 
+        /// <summary>
+        /// The entries shown for the selected tab (games or apps). GameEntries stays the full list used by all operations.
+        /// </summary>
+        public ObservableCollection<GameEntry> DisplayedEntries
+        {
+            get; set;
+        }
+
+        private bool showingApps = AppSettings.ShowAppsTab;
+
         private readonly string thirdPartyLibrariesPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             @"AppData\Local\Packages\Microsoft.GamingApp_8wekyb3d8bbwe\LocalState\ThirdPartyLibraries");
         private const string unknownName = "Unknown";
@@ -129,17 +139,81 @@ namespace SteamGridDB.Xbox
 
         public PrimaryWidget()
         {
-            InitializeComponent();
             GameEntries = new ObservableCollection<GameEntry>();
+            DisplayedEntries = new ObservableCollection<GameEntry>();
+            InitializeComponent();
             Loaded += PrimaryWidget_Loaded;
         }
 
         private async void PrimaryWidget_Loaded(object sender, RoutedEventArgs e)
         {
+            RefreshDisplayedEntries();
+
             await LoadGameEntriesAsync();
 
             // Set default focus to Fix my library button for controller navigation
             FixLibraryButton.Focus(FocusState.Programmatic);
+        }
+
+        private void GamesTab_Click(object sender, RoutedEventArgs e)
+        {
+            SelectTab(false);
+        }
+
+        private void AppsTab_Click(object sender, RoutedEventArgs e)
+        {
+            SelectTab(true);
+        }
+
+        private void SelectTab(bool apps)
+        {
+            if (showingApps != apps)
+            {
+                showingApps = apps;
+                AppSettings.ShowAppsTab = apps;
+            }
+
+            RefreshDisplayedEntries();
+        }
+
+        /// <summary>
+        /// Fills the visible list for the selected tab and updates the tab labels and empty-tab message.
+        /// </summary>
+        private void RefreshDisplayedEntries()
+        {
+            DisplayedEntries.Clear();
+
+            foreach (GameEntry entry in GameEntries.Where(g => (g.Platform == GamePlatform.App) == showingApps))
+            {
+                DisplayedEntries.Add(entry);
+            }
+
+            int appCount = GameEntries.Count(g => g.Platform == GamePlatform.App);
+            int gameCount = GameEntries.Count - appCount;
+
+            GamesTabText.Text = gameCount > 0 ? $"Games ({gameCount})" : "Games";
+            AppsTabText.Text = appCount > 0 ? $"Apps ({appCount})" : "Apps";
+
+            StyleTab(GamesTabButton, GamesTabText, !showingApps);
+            StyleTab(AppsTabButton, AppsTabText, showingApps);
+
+            // Only explain an empty tab once the library has actually loaded
+            bool listShown = GameEntriesListView.Visibility == Visibility.Visible && !isBusy;
+
+            EmptyTabText.Text = showingApps
+                ? "No custom apps yet. Add apps in the Xbox app's Apps tab with the + button, and they will show up here so you can change their icons."
+                : "No games found.";
+            EmptyTabText.Visibility = listShown && DisplayedEntries.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private static void StyleTab(Button button, TextBlock label, bool selected)
+        {
+            button.Background = new Windows.UI.Xaml.Media.SolidColorBrush(selected
+                ? Windows.UI.Color.FromArgb(0xFF, 0x4A, 0x4A, 0x4A)
+                : Windows.UI.Color.FromArgb(0x00, 0x00, 0x00, 0x00));
+            label.Foreground = new Windows.UI.Xaml.Media.SolidColorBrush(selected
+                ? Windows.UI.Colors.White
+                : Windows.UI.Color.FromArgb(0x99, 0xFF, 0xFF, 0xFF));
         }
 
         /// <summary>
@@ -189,6 +263,7 @@ namespace SteamGridDB.Xbox
             try
             {
                 GameEntries.Clear();
+                RefreshDisplayedEntries();
                 StatusText.Text = "Attempting to access ThirdPartyLibraries...";
                 InstructionsPanel.Visibility = Visibility.Collapsed;
                 GameEntriesListView.Visibility = Visibility.Visible;
@@ -312,6 +387,8 @@ namespace SteamGridDB.Xbox
                     GameEntries.Add(game);
                 }
 
+                RefreshDisplayedEntries();
+
                 int gameCount = tmpGameList.Count;
                 string status = $"Found {gameCount} game{(gameCount == 1 ? string.Empty : "s")}" +
                     (apps.Count > 0 ? $" and {apps.Count} app{(apps.Count == 1 ? string.Empty : "s")}" : string.Empty);
@@ -337,6 +414,9 @@ namespace SteamGridDB.Xbox
             finally
             {
                 isBusy = false;
+
+                // Shows the empty-tab hint now that loading has finished
+                RefreshDisplayedEntries();
 
                 // Pick up a library change that arrived while busy (no-op when nothing changed)
                 ReloadIfPending();
@@ -1453,6 +1533,9 @@ namespace SteamGridDB.Xbox
             {
                 isBusy = false;
 
+                // Shows the empty-tab hint now that loading has finished
+                RefreshDisplayedEntries();
+
                 // Pick up a library change that arrived while busy (no-op when nothing changed)
                 ReloadIfPending();
             }
@@ -1591,6 +1674,9 @@ namespace SteamGridDB.Xbox
             finally
             {
                 isBusy = false;
+
+                // Shows the empty-tab hint now that loading has finished
+                RefreshDisplayedEntries();
 
                 // Pick up a library change that arrived while busy (no-op when nothing changed)
                 ReloadIfPending();

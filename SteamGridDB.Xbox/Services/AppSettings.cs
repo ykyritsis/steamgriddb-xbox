@@ -13,6 +13,16 @@ namespace SteamGridDB.Xbox.Services
         private const string lockArtworkSetting = "LockArtwork";
         private const string storeSourcesSetting = "UseStoreSources";
         private const string steamPathSetting = "SteamPath";
+        private const string showAppsTabSetting = "ShowAppsTab";
+
+        /// <summary>
+        /// Whether the widget last showed the Apps tab rather than the Games tab.
+        /// </summary>
+        public static bool ShowAppsTab
+        {
+            get => ApplicationData.Current.LocalSettings.Values[showAppsTabSetting] is bool value && value;
+            set => ApplicationData.Current.LocalSettings.Values[showAppsTabSetting] = value;
+        }
 
         /// <summary>
         /// Steam install folder entered in Settings, or null to look in the default locations.
