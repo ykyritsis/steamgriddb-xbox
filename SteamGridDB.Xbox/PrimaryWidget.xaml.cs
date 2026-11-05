@@ -73,6 +73,7 @@ namespace SteamGridDB.Xbox
 
         // Watches the Xbox app's manifests so newly detected games appear without a manual refresh
         private StorageFileQueryResult manifestQuery;
+        private StorageFileQueryResult appsManifestQuery;
         private DispatcherTimer manifestDebounceTimer;
         private string loadedManifestSignature;
         private bool manifestReloadPending;
@@ -296,10 +297,14 @@ namespace SteamGridDB.Xbox
                     System.Diagnostics.Debug.WriteLine($"Could not resolve game names: {ex.Message}");
                 }
 
-                // Sort games alphabetically by name, with "Unknown" at the end
+                // Custom apps from the Xbox app's "Apps" tab: their names are already known, so no lookups
+                List<GameEntry> apps = await LoadCustomAppsAsync();
+
+                // Sort games alphabetically by name, with "Unknown" at the end, then apps
                 List<GameEntry> sortedGames = tmpGameList
                     .OrderBy(g => g.Name == unknownName ? 1 : 0)
                     .ThenBy(g => g.Name)
+                    .Concat(apps.OrderBy(a => a.Name))
                     .ToList();
 
                 foreach (GameEntry game in sortedGames)
@@ -307,7 +312,9 @@ namespace SteamGridDB.Xbox
                     GameEntries.Add(game);
                 }
 
-                string status = $"Found {GameEntries.Count} game{(GameEntries.Count == 1 ? string.Empty : "s")}";
+                int gameCount = tmpGameList.Count;
+                string status = $"Found {gameCount} game{(gameCount == 1 ? string.Empty : "s")}" +
+                    (apps.Count > 0 ? $" and {apps.Count} app{(apps.Count == 1 ? string.Empty : "s")}" : string.Empty);
 
                 if (unreadableEntries > 0)
                 {
@@ -362,6 +369,25 @@ namespace SteamGridDB.Xbox
 
                 // Change notifications only start once the query has been run
                 await manifestQuery.GetFilesAsync();
+
+                // The custom apps list is in a separate folder, so it needs its own watcher
+                try
+                {
+                    StorageFolder appsFolder = await CustomLibraryWriter.GetAppsFolderAsync();
+
+                    appsManifestQuery = appsFolder.CreateFileQueryWithOptions(new QueryOptions(CommonFileQuery.DefaultQuery, new[] { manifestFileExtension })
+                    {
+                        FolderDepth = FolderDepth.Shallow,
+                        IndexerOption = IndexerOption.DoNotUseIndexer
+                    });
+                    appsManifestQuery.ContentsChanged += ManifestQuery_ContentsChanged;
+
+                    await appsManifestQuery.GetFilesAsync();
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Could not watch the custom apps list: {ex.Message}");
+                }
 
                 manifestDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
                 manifestDebounceTimer.Tick += ManifestDebounceTimer_Tick;
@@ -448,7 +474,73 @@ namespace SteamGridDB.Xbox
                 }
             }
 
+            // The custom apps list lives outside ThirdPartyLibraries
+            try
+            {
+                StorageFolder appsFolder = await CustomLibraryWriter.GetAppsFolderAsync();
+
+                if (await appsFolder.TryGetItemAsync($"{appsFolder.Name}{manifestFileExtension}") is StorageFile appsManifest)
+                {
+                    Windows.Storage.FileProperties.BasicProperties properties = await appsManifest.GetBasicPropertiesAsync();
+
+                    parts.Add($"apps:{properties.Size}:{properties.DateModified.UtcTicks}");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Could not check the custom apps list: {ex.Message}");
+            }
+
             return string.Join("|", parts);
+        }
+
+        /// <summary>
+        /// Reads the custom apps the user added in the Xbox app's "Apps" tab. They use the custom games format, but live in
+        /// a separate list. The built-in launcher tiles on that tab ship inside the Xbox app's package and cannot be changed.
+        /// </summary>
+        private async Task<List<GameEntry>> LoadCustomAppsAsync()
+        {
+            List<GameEntry> apps = new List<GameEntry>();
+
+            try
+            {
+                StorageFolder appsFolder = await CustomLibraryWriter.GetAppsFolderAsync();
+                JsonObject appCache = await ReadGameCacheAsync(appsFolder);
+
+                if (appCache == null)
+                {
+                    return apps;
+                }
+
+                foreach (KeyValuePair<string, IJsonValue> entry in StorageSnapshot.Copy(appCache))
+                {
+                    if (entry.Key == "version" || entry.Value.ValueType != JsonValueType.Object)
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        GameEntry app = await CreateGameEntryAsync(appsFolder, GamePlatform.App, entry.Value.GetObject());
+
+                        if (app != null)
+                        {
+                            apps.Add(app);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Error reading custom app {entry.Key}: {ex.Message}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // Older Xbox app versions have no apps list
+                System.Diagnostics.Debug.WriteLine($"Could not read custom apps: {ex.Message}");
+            }
+
+            return apps;
         }
 
         /// <summary>
@@ -517,7 +609,7 @@ namespace SteamGridDB.Xbox
             string imageFilePath = null;
             StorageFolder imageFolder = null;
 
-            if (platform == GamePlatform.Custom) // Custom contains full path for the image filename
+            if (GamePlatformHelper.IsCustomLibrary(platform)) // Custom games and apps store the full image path
             {
                 imageFilePath = GetJsonString(entryObject, "imagePath");
 
@@ -569,7 +661,7 @@ namespace SteamGridDB.Xbox
             string xboxPlatformId;
             string externalPlatformId;
 
-            if (platform == GamePlatform.Custom)
+            if (GamePlatformHelper.IsCustomLibrary(platform))
             {
                 gameName = GetJsonString(entryObject, "title") ?? unknownName;
                 xboxPlatformId = entryId;
@@ -634,7 +726,7 @@ namespace SteamGridDB.Xbox
                     if (cached != null)
                     {
                         // Custom games keep the title the user gave them in the Xbox app
-                        if (game.Platform != GamePlatform.Custom && !string.IsNullOrEmpty(cached.Name))
+                        if (!GamePlatformHelper.IsCustomLibrary(game.Platform) && !string.IsNullOrEmpty(cached.Name))
                         {
                             game.Name = cached.Name;
                         }
@@ -1290,7 +1382,7 @@ namespace SteamGridDB.Xbox
 
                 // Get eligible games: not modified yet, writable, and something to match on
                 List<GameEntry> eligibleGames = GameEntries
-                    .Where(g => !g.HasBackup && g.ImageFolder != null && (g.HasSteamGridDBMatch || (useStores && g.Name != unknownName)))
+                    .Where(g => !g.HasBackup && g.ImageFolder != null && g.Platform != GamePlatform.App && (g.HasSteamGridDBMatch || (useStores && g.Name != unknownName)))
                     .ToList();
 
                 if (eligibleGames.Count == 0)
@@ -1550,7 +1642,7 @@ namespace SteamGridDB.Xbox
         /// </summary>
         private static bool CanReplaceImage(GameEntry game)
         {
-            return game.Platform == GamePlatform.Custom || (game.ImageFolder != null && !string.IsNullOrEmpty(game.ImageFilePath));
+            return GamePlatformHelper.IsCustomLibrary(game.Platform) || (game.ImageFolder != null && !string.IsNullOrEmpty(game.ImageFilePath));
         }
 
         /// <summary>
@@ -1561,7 +1653,7 @@ namespace SteamGridDB.Xbox
             try
             {
                 // A custom game with no usable image file gets a new one in the Xbox app's custom images folder
-                if (game.Platform == GamePlatform.Custom && (game.ImageFolder == null || string.IsNullOrEmpty(game.ImageFilePath)))
+                if (GamePlatformHelper.IsCustomLibrary(game.Platform) && (game.ImageFolder == null || string.IsNullOrEmpty(game.ImageFilePath)))
                 {
                     return await CreateCustomGameImageAsync(game, sourceImage, updateStatusText);
                 }
@@ -1642,7 +1734,7 @@ namespace SteamGridDB.Xbox
             string imagePath = Path.Combine(imagesFolder.Path, imageFileName);
 
             // Only the custom library needs updating if it does not point at this file yet
-            if (!string.Equals(await CustomLibraryWriter.GetImagePathAsync(game.XboxPlatformId), imagePath, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(await CustomLibraryWriter.GetImagePathAsync(game.XboxPlatformId, game.Platform == GamePlatform.App), imagePath, StringComparison.OrdinalIgnoreCase))
             {
                 ContentDialog confirm = CreateDialog(
                     "Add a cover to this game",
@@ -1656,7 +1748,7 @@ namespace SteamGridDB.Xbox
                     return false;
                 }
 
-                if (!await CustomLibraryWriter.SetImagePathAsync(game.XboxPlatformId, imagePath))
+                if (!await CustomLibraryWriter.SetImagePathAsync(game.XboxPlatformId, imagePath, game.Platform == GamePlatform.App))
                 {
                     StatusText.Text = $"{game.Name} is no longer in the Xbox app's custom library";
 
@@ -1742,7 +1834,7 @@ namespace SteamGridDB.Xbox
                 {
                     if (client != null)
                     {
-                        if (!game.SteamGridDbGameId.HasValue && game.Platform == GamePlatform.Custom && game.Name != unknownName)
+                        if (!game.SteamGridDbGameId.HasValue && GamePlatformHelper.IsCustomLibrary(game.Platform) && game.Name != unknownName)
                         {
                             // Custom games have no platform ID: use the closest SteamGridDB result for their name
                             SteamGridDbGame closest = (await client.SearchGameByNameAsync(game.Name)).FirstOrDefault();
@@ -1769,7 +1861,8 @@ namespace SteamGridDB.Xbox
 
                 AddSteamGridDbArtwork(grids, icons);
 
-                await AddStoreArtworkAsync(game.Name, requestId, grids.Count, icons.Count);
+                // Game stores only return unrelated games for app names
+                await AddStoreArtworkAsync(game.Platform == GamePlatform.App ? null : game.Name, requestId, grids.Count, icons.Count);
             }
             catch (Exception ex)
             {

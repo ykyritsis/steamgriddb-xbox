@@ -121,10 +121,11 @@ namespace SteamGridDB.Xbox.Services.Xbox
         /// Points an existing custom entry at a new image file, backing the manifest up first.
         /// </summary>
         /// <returns>False if no entry with that ID exists.</returns>
-        public static async Task<bool> SetImagePathAsync(string entryId, string imagePath)
+        /// <param name="apps">True for an entry in the custom apps list, false for the custom games list.</param>
+        public static async Task<bool> SetImagePathAsync(string entryId, string imagePath, bool apps = false)
         {
-            StorageFolder folder = await GetManifestFolderAsync();
-            JsonObject root = await ReadManifestAsync();
+            StorageFolder folder = await GetManifestFolderAsync(apps);
+            JsonObject root = await ReadManifestAsync(apps);
             JsonObject entry = FindEntry(GetGameCache(root), entryId);
 
             if (entry == null)
@@ -132,7 +133,7 @@ namespace SteamGridDB.Xbox.Services.Xbox
                 return false;
             }
 
-            await BackupManifestAsync(folder);
+            await BackupManifestAsync(folder, apps);
 
             entry["imagePath"] = JsonValue.CreateStringValue(imagePath);
 
@@ -145,9 +146,9 @@ namespace SteamGridDB.Xbox.Services.Xbox
         /// <summary>
         /// Returns the image path currently stored for a custom entry, or null if the entry does not exist.
         /// </summary>
-        public static async Task<string> GetImagePathAsync(string entryId)
+        public static async Task<string> GetImagePathAsync(string entryId, bool apps = false)
         {
-            JsonObject entry = FindEntry(GetGameCache(await ReadManifestAsync()), entryId);
+            JsonObject entry = FindEntry(GetGameCache(await ReadManifestAsync(apps)), entryId);
 
             return entry?.GetNamedString("imagePath", string.Empty);
         }
@@ -263,17 +264,32 @@ namespace SteamGridDB.Xbox.Services.Xbox
             }
         }
 
-        private static async Task<StorageFolder> GetManifestFolderAsync()
+        /// <summary>
+        /// Folder holding the custom apps list (the Xbox app's "Apps" tab). It is separate from the custom games list,
+        /// which lives under ThirdPartyLibraries, but uses the same format and the same images folder.
+        /// </summary>
+        public static async Task<StorageFolder> GetAppsFolderAsync()
+        {
+            return await GetManifestFolderAsync(true);
+        }
+
+        private static async Task<StorageFolder> GetManifestFolderAsync(bool apps = false)
         {
             StorageFolder localState = await StorageFolder.GetFolderFromPathAsync(LocalStatePath);
+
+            if (apps)
+            {
+                return await localState.CreateFolderAsync(customFolderName, CreationCollisionOption.OpenIfExists);
+            }
+
             StorageFolder thirdParty = await localState.CreateFolderAsync("ThirdPartyLibraries", CreationCollisionOption.OpenIfExists);
 
             return await thirdParty.CreateFolderAsync(customFolderName, CreationCollisionOption.OpenIfExists);
         }
 
-        private static async Task<JsonObject> ReadManifestAsync()
+        private static async Task<JsonObject> ReadManifestAsync(bool apps = false)
         {
-            StorageFolder folder = await GetManifestFolderAsync();
+            StorageFolder folder = await GetManifestFolderAsync(apps);
 
             if (await folder.TryGetItemAsync($"{customFolderName}.manifest") is StorageFile file)
             {
@@ -323,7 +339,7 @@ namespace SteamGridDB.Xbox.Services.Xbox
         /// <summary>
         /// Copies the current manifest into the widget's own storage, keeping the last few copies.
         /// </summary>
-        private static async Task BackupManifestAsync(StorageFolder manifestFolder)
+        private static async Task BackupManifestAsync(StorageFolder manifestFolder, bool apps = false)
         {
             if (!(await manifestFolder.TryGetItemAsync($"{customFolderName}.manifest") is StorageFile manifest))
             {
@@ -331,12 +347,13 @@ namespace SteamGridDB.Xbox.Services.Xbox
             }
 
             StorageFolder backups = await ApplicationData.Current.LocalFolder.CreateFolderAsync(backupFolderName, CreationCollisionOption.OpenIfExists);
+            string prefix = apps ? "CustomApps" : customFolderName;
 
-            await manifest.CopyAsync(backups, $"{customFolderName}_{DateTime.Now:yyyy-MM-dd_HH-mm-ss}.manifest", NameCollisionOption.ReplaceExisting);
+            await manifest.CopyAsync(backups, $"{prefix}_{DateTime.Now:yyyy-MM-dd_HH-mm-ss}.manifest", NameCollisionOption.ReplaceExisting);
 
             IReadOnlyList<StorageFile> existing = await backups.GetFilesAsync();
 
-            foreach (StorageFile old in existing.OrderByDescending(f => f.Name).Skip(backupsToKeep))
+            foreach (StorageFile old in existing.Where(f => f.Name.StartsWith(prefix + "_", StringComparison.OrdinalIgnoreCase)).OrderByDescending(f => f.Name).Skip(backupsToKeep))
             {
                 await old.DeleteAsync();
             }
