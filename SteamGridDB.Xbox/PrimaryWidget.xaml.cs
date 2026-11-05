@@ -1639,8 +1639,14 @@ namespace SteamGridDB.Xbox
                         }
 
                         IBuffer imageBytes = await FileIO.ReadBufferAsync(newFile);
+                        string extension = Path.GetExtension(imageFileName).ToLowerInvariant();
+
+                        // Re-encode through the converter so covers saved by older versions (some only 128 px, which the
+                        // Xbox app ignores) are brought up to the minimum size
+                        imageBytes = await ArtworkImageConverter.ToSquareImageAsync(imageBytes, extension == ".jpg" || extension == ".jpeg");
 
                         await WriteArtworkFileAsync(game.ImageFolder, imageFileName, imageBytes);
+                        await FileIO.WriteBufferAsync(newFile, imageBytes);
 
                         game.Image = await CreateBitmapAsync(imageBytes);
                         game.ImageFileName = imageFileName;
@@ -1872,10 +1878,21 @@ namespace SteamGridDB.Xbox
         {
             string imagePath = Path.Combine(folder.Path, imageFileName);
 
+            // Write to a temporary file and swap it in only once it is complete: writing in place could leave an empty,
+            // locked cover behind if the write was interrupted (seen on one game), which the Xbox app then shows as blank
+            StorageFile tempFile = await folder.CreateFileAsync(imageFileName + ".sgdbtmp", CreationCollisionOption.ReplaceExisting);
+            await FileIO.WriteBufferAsync(tempFile, imageBytes);
+
+            if ((await tempFile.GetBasicPropertiesAsync()).Size != imageBytes.Length)
+            {
+                await tempFile.DeleteAsync();
+
+                throw new IOException($"The new artwork for {imageFileName} was not written completely");
+            }
+
             ArtworkFileLock.Unlock(imagePath);
 
-            StorageFile imageFile = await folder.CreateFileAsync(imageFileName, CreationCollisionOption.ReplaceExisting);
-            await FileIO.WriteBufferAsync(imageFile, imageBytes);
+            await tempFile.MoveAsync(folder, imageFileName, NameCollisionOption.ReplaceExisting);
 
             if (AppSettings.LockArtwork)
             {
