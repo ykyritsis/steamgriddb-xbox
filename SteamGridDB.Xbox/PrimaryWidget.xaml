@@ -429,6 +429,48 @@
                     Foreground="#FFFFFF"
                     Text="{x:Bind GridPanelHeaderText, Mode=OneWay}"
                     TextWrapping="Wrap" />
+
+                <!--  Other ways to pick artwork  -->
+                <StackPanel
+                    Grid.Column="2"
+                    Margin="12,0,0,0"
+                    VerticalAlignment="Center"
+                    Orientation="Horizontal"
+                    Spacing="6">
+                    <Button
+                        Width="32"
+                        Height="32"
+                        Click="SearchOtherName_Click"
+                        Style="{StaticResource FluentIconButton}"
+                        ToolTipService.ToolTip="Search another name">
+                        <FontIcon
+                            FontFamily="Segoe MDL2 Assets"
+                            FontSize="14"
+                            Glyph="&#xE721;" />
+                    </Button>
+                    <Button
+                        Width="32"
+                        Height="32"
+                        Click="UseImageLink_Click"
+                        Style="{StaticResource FluentIconButton}"
+                        ToolTipService.ToolTip="Use an image link">
+                        <FontIcon
+                            FontFamily="Segoe MDL2 Assets"
+                            FontSize="14"
+                            Glyph="&#xE71B;" />
+                    </Button>
+                    <Button
+                        Width="32"
+                        Height="32"
+                        Click="UseImageFile_Click"
+                        Style="{StaticResource FluentIconButton}"
+                        ToolTipService.ToolTip="Choose an image file">
+                        <FontIcon
+                            FontFamily="Segoe MDL2 Assets"
+                            FontSize="14"
+                            Glyph="&#xE8E5;" />
+                    </Button>
+                </StackPanel>
             </Grid>
 
             <!--  Grid Images List  -->

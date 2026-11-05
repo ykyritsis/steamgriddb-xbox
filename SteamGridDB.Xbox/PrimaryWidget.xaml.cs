@@ -1101,51 +1101,16 @@ namespace SteamGridDB.Xbox
                     }
                 }
 
-                StatusText.Text = "Closing the Xbox app...";
-
-                bool closedAutomatically = await CustomLibraryWriter.TryCloseXboxAppAsync();
-
-                // Any Xbox app process left running saves its own copy of the library over the file (seen in testing:
-                // entries written while XboxPcTray was still running were wiped), so do not write until it has exited
-                int stillRunning = closedAutomatically ? 0 : await CustomLibraryWriter.GetRunningProcessCountAsync();
-
-                while (stillRunning != 0)
+                if (!await EnsureXboxAppClosedAsync())
                 {
-                    ContentDialog closeDialog = CreateDialog(
-                        "Close the Xbox app",
-                        (stillRunning > 0 ? $"The Xbox app is still running ({stillRunning} process{(stillRunning == 1 ? string.Empty : "es")}). " : "The Xbox app could not be closed automatically. ") +
-                        "It saves over its library while running, so please close it completely - including its icon in the system tray " +
-                        "(right-click > Exit) - then press Continue.",
-                        "Continue");
+                    StatusText.Text = "No games were added";
 
-                    if (await closeDialog.ShowAsync() != ContentDialogResult.Primary)
-                    {
-                        StatusText.Text = "No games were added";
-
-                        return;
-                    }
-
-                    // -1 means it cannot be checked without diagnostic access - trust the user
-                    stillRunning = await CustomLibraryWriter.GetRunningProcessCountAsync();
-
-                    if (stillRunning < 0)
-                    {
-                        break;
-                    }
+                    return;
                 }
-
-                await Task.Delay(1000);
 
                 List<string> addedIds = await CustomLibraryWriter.AddEntriesAsync(entries);
 
-                // In Xbox full screen experience Windows restarts the Xbox app within a second of closing it,
-                // so it may already have loaded the old library - close it once more so the restart reads the new one
-                await Task.Delay(1500);
-
-                if (await CustomLibraryWriter.GetRunningProcessCountAsync() > 0)
-                {
-                    await CustomLibraryWriter.TryCloseXboxAppAsync();
-                }
+                await CloseXboxAppIfRestartedAsync();
 
                 // Watch for a while: an overwrite shows up within seconds of the Xbox app starting
                 int kept = 0;
@@ -1180,6 +1145,63 @@ namespace SteamGridDB.Xbox
                 isBusy = false;
 
                 ReloadIfPending();
+            }
+        }
+
+        /// <summary>
+        /// Closes the Xbox app completely before its custom library is written, asking the user to close it when that
+        /// cannot be done automatically.
+        /// </summary>
+        /// <returns>False if the user cancelled.</returns>
+        private async Task<bool> EnsureXboxAppClosedAsync()
+        {
+            StatusText.Text = "Closing the Xbox app...";
+
+            bool closedAutomatically = await CustomLibraryWriter.TryCloseXboxAppAsync();
+
+            // Any Xbox app process left running saves its own copy of the library over the file (seen in testing:
+            // entries written while XboxPcTray was still running were wiped), so do not write until it has exited
+            int stillRunning = closedAutomatically ? 0 : await CustomLibraryWriter.GetRunningProcessCountAsync();
+
+            while (stillRunning != 0)
+            {
+                ContentDialog closeDialog = CreateDialog(
+                    "Close the Xbox app",
+                    (stillRunning > 0 ? $"The Xbox app is still running ({stillRunning} process{(stillRunning == 1 ? string.Empty : "es")}). " : "The Xbox app could not be closed automatically. ") +
+                    "It saves over its library while running, so please close it completely - including its icon in the system tray " +
+                    "(right-click > Exit) - then press Continue.",
+                    "Continue");
+
+                if (await closeDialog.ShowAsync() != ContentDialogResult.Primary)
+                {
+                    return false;
+                }
+
+                // -1 means it cannot be checked without diagnostic access - trust the user
+                stillRunning = await CustomLibraryWriter.GetRunningProcessCountAsync();
+
+                if (stillRunning < 0)
+                {
+                    break;
+                }
+            }
+
+            await Task.Delay(1000);
+
+            return true;
+        }
+
+        /// <summary>
+        /// In Xbox full screen experience Windows restarts the Xbox app within a second of closing it, so it may already
+        /// have loaded the old library - close it once more so the restart reads the new one.
+        /// </summary>
+        private static async Task CloseXboxAppIfRestartedAsync()
+        {
+            await Task.Delay(1500);
+
+            if (await CustomLibraryWriter.GetRunningProcessCountAsync() > 0)
+            {
+                await CustomLibraryWriter.TryCloseXboxAppAsync();
             }
         }
 
@@ -1492,7 +1514,7 @@ namespace SteamGridDB.Xbox
         /// <returns>True if successful, false otherwise</returns>
         private async Task<bool> DownloadAndReplaceImageCoreAsync(GameEntry game, string imageUrl, bool updateStatusText = true)
         {
-            if (game?.ImageFolder == null || string.IsNullOrEmpty(game.ImageFilePath))
+            if (game == null || !CanReplaceImage(game))
             {
                 return false;
             }
@@ -1512,6 +1534,44 @@ namespace SteamGridDB.Xbox
 
                     downloadedBytes = await response.Content.ReadAsBufferAsync();
                 }
+
+                return await ReplaceImageCoreAsync(game, downloadedBytes, updateStatusText);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error downloading artwork for {game.Name}: {ex.Message}");
+
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Whether the widget can write artwork for this game. Custom games without an image get one created for them.
+        /// </summary>
+        private static bool CanReplaceImage(GameEntry game)
+        {
+            return game.Platform == GamePlatform.Custom || (game.ImageFolder != null && !string.IsNullOrEmpty(game.ImageFilePath));
+        }
+
+        /// <summary>
+        /// Replaces a game's artwork with the given image (any common format; it is converted to a square image first).
+        /// </summary>
+        private async Task<bool> ReplaceImageCoreAsync(GameEntry game, IBuffer sourceImage, bool updateStatusText = true)
+        {
+            try
+            {
+                // A custom game with no usable image file gets a new one in the Xbox app's custom images folder
+                if (game.Platform == GamePlatform.Custom && (game.ImageFolder == null || string.IsNullOrEmpty(game.ImageFilePath)))
+                {
+                    return await CreateCustomGameImageAsync(game, sourceImage, updateStatusText);
+                }
+
+                if (game.ImageFolder == null || string.IsNullOrEmpty(game.ImageFilePath))
+                {
+                    return false;
+                }
+
+                IBuffer downloadedBytes = sourceImage;
 
                 // Generate the filenames
                 string imageFileName = Path.GetFileName(game.ImageFilePath);
@@ -1557,10 +1617,68 @@ namespace SteamGridDB.Xbox
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error in DownloadAndReplaceImageAsync for {game.Name}: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Error in ReplaceImageCoreAsync for {game.Name}: {ex.Message}");
 
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Gives a custom game that has no image its first cover: saves it to the Xbox app's custom images folder and
+        /// records the path in the custom library (the Xbox app must be closed for that, as when adding games).
+        /// </summary>
+        private async Task<bool> CreateCustomGameImageAsync(GameEntry game, IBuffer sourceImage, bool updateStatusText)
+        {
+            StorageFolder imagesFolder = await CustomLibraryWriter.GetImagesFolderAsync();
+            string safeId = new string(game.XboxPlatformId.Where(char.IsLetterOrDigit).ToArray());
+            string imageFileName = $"sgdbx-custom-{safeId}.png";
+            IBuffer imageBytes = await ArtworkImageConverter.ToSquareImageAsync(sourceImage, false);
+
+            await WriteArtworkFileAsync(imagesFolder, imageFileName, imageBytes);
+
+            StorageFile newFile = await imagesFolder.CreateFileAsync(GetSiblingFileName(imageFileName, newImageExtension), CreationCollisionOption.ReplaceExisting);
+            await FileIO.WriteBufferAsync(newFile, imageBytes);
+
+            string imagePath = Path.Combine(imagesFolder.Path, imageFileName);
+
+            // Only the custom library needs updating if it does not point at this file yet
+            if (!string.Equals(await CustomLibraryWriter.GetImagePathAsync(game.XboxPlatformId), imagePath, StringComparison.OrdinalIgnoreCase))
+            {
+                ContentDialog confirm = CreateDialog(
+                    "Add a cover to this game",
+                    $"{game.Name} has no image in the Xbox app yet. To add one, the Xbox app needs to be closed while its library is updated.",
+                    "Continue");
+
+                if (await confirm.ShowAsync() != ContentDialogResult.Primary || !await EnsureXboxAppClosedAsync())
+                {
+                    StatusText.Text = $"The cover for {game.Name} was not added";
+
+                    return false;
+                }
+
+                if (!await CustomLibraryWriter.SetImagePathAsync(game.XboxPlatformId, imagePath))
+                {
+                    StatusText.Text = $"{game.Name} is no longer in the Xbox app's custom library";
+
+                    return false;
+                }
+
+                await CloseXboxAppIfRestartedAsync();
+
+                manifestReloadPending = true;
+            }
+
+            game.ImageFolder = imagesFolder;
+            game.ImageFilePath = imagePath;
+            game.Image = await CreateBitmapAsync(imageBytes);
+            game.ImageFileName = imageFileName;
+
+            if (updateStatusText)
+            {
+                StatusText.Text = $"Cover added for {game.Name} - open the Xbox app to see it";
+            }
+
+            return true;
         }
 
         /// <summary>
@@ -1624,8 +1742,23 @@ namespace SteamGridDB.Xbox
                 {
                     if (client != null)
                     {
-                        grids = await GetSquareGridsAsync(client, game);
-                        icons = await GetSquareIconsAsync(client, game);
+                        if (!game.SteamGridDbGameId.HasValue && game.Platform == GamePlatform.Custom && game.Name != unknownName)
+                        {
+                            // Custom games have no platform ID: use the closest SteamGridDB result for their name
+                            SteamGridDbGame closest = (await client.SearchGameByNameAsync(game.Name)).FirstOrDefault();
+
+                            if (closest != null)
+                            {
+                                GridPanelHeaderText = $"Select artwork for {game.Name} (closest SteamGridDB match: {closest.Name})";
+                                grids = await client.GetSquareGridsByGameIdAsync(closest.Id);
+                                icons = await client.GetSquareIconsByGameIdAsync(closest.Id);
+                            }
+                        }
+                        else
+                        {
+                            grids = await GetSquareGridsAsync(client, game);
+                            icons = await GetSquareIconsAsync(client, game);
+                        }
                     }
                 }
 
@@ -1767,13 +1900,127 @@ namespace SteamGridDB.Xbox
         /// </summary>
         private async Task DownloadAndReplaceImageAsync(GridImageItem gridItem)
         {
+            GameEntry game = CurrentSelectedGame;
+
+            await ApplyPanelArtworkAsync("Downloading image...", () => DownloadAndReplaceImageCoreAsync(game, gridItem.Url));
+        }
+
+        /// <summary>
+        /// Opens the search panel for the game in the artwork panel, e.g. when the closest match is the wrong game.
+        /// </summary>
+        private async void SearchOtherName_Click(object sender, RoutedEventArgs e)
+        {
+            GameEntry game = CurrentSelectedGame;
+            Button opener = lastFocusedButton;
+
+            if (game == null)
+            {
+                return;
+            }
+
+            // Keep the game selected and the original button to return focus to after the search
+            lastFocusedButton = null;
+            await HideGridPanelAsync();
+
+            lastFocusedButton = opener;
+            CurrentSelectedGame = game;
+
+            await ShowSearchPanelAsync();
+        }
+
+        /// <summary>
+        /// Uses artwork from any image link the user pastes.
+        /// </summary>
+        private async void UseImageLink_Click(object sender, RoutedEventArgs e)
+        {
+            GameEntry game = CurrentSelectedGame;
+
+            if (game == null)
+            {
+                return;
+            }
+
+            TextBox linkBox = new TextBox
+            {
+                Header = "Link to an image (PNG, JPEG, WebP...) - it will be cropped to a square",
+                PlaceholderText = "https://"
+            };
+            linkBox.GotFocus += GameSearchBox_GotFocus;
+            linkBox.LostFocus += GameSearchBox_LostFocus;
+
+            if (await CreateDialog("Use an image link", linkBox, "Use image").ShowAsync() != ContentDialogResult.Primary)
+            {
+                return;
+            }
+
+            if (!Uri.TryCreate(linkBox.Text?.Trim(), UriKind.Absolute, out Uri link) || (link.Scheme != "https" && link.Scheme != "http"))
+            {
+                GridPanelStatus.Text = "That is not a valid web link";
+
+                return;
+            }
+
+            await ApplyPanelArtworkAsync("Downloading image...", () => DownloadAndReplaceImageCoreAsync(game, link.AbsoluteUri));
+        }
+
+        /// <summary>
+        /// Uses an image file from this PC.
+        /// </summary>
+        private async void UseImageFile_Click(object sender, RoutedEventArgs e)
+        {
+            GameEntry game = CurrentSelectedGame;
+
+            if (game == null)
+            {
+                return;
+            }
+
+            Windows.Storage.Pickers.FileOpenPicker picker = new Windows.Storage.Pickers.FileOpenPicker
+            {
+                ViewMode = Windows.Storage.Pickers.PickerViewMode.Thumbnail,
+                SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.PicturesLibrary
+            };
+
+            foreach (string extension in new[] { ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".ico" })
+            {
+                picker.FileTypeFilter.Add(extension);
+            }
+
+            StorageFile file;
+
             try
             {
-                GridPanelStatus.Text = "Downloading image...";
+                file = await picker.PickSingleFileAsync();
+            }
+            catch (Exception ex)
+            {
+                // Pickers are not available in every Game Bar context
+                GridPanelStatus.Text = "The file picker is not available here - use an image link instead";
+
+                System.Diagnostics.Debug.WriteLine($"File picker failed: {ex.Message}");
+
+                return;
+            }
+
+            if (file == null)
+            {
+                return;
+            }
+
+            await ApplyPanelArtworkAsync("Applying image...", async () => await ReplaceImageCoreAsync(game, await FileIO.ReadBufferAsync(file)));
+        }
+
+        /// <summary>
+        /// Runs an artwork change from the artwork panel, showing progress and closing the panel when it succeeds.
+        /// </summary>
+        private async Task ApplyPanelArtworkAsync(string progressText, Func<Task<bool>> applyArtwork)
+        {
+            try
+            {
+                GridPanelStatus.Text = progressText;
                 GridLoadingRing.IsActive = true;
 
-                // Use the core download and replace logic
-                bool success = await DownloadAndReplaceImageCoreAsync(CurrentSelectedGame, gridItem.Url);
+                bool success = await applyArtwork();
 
                 if (success)
                 {
@@ -1786,7 +2033,7 @@ namespace SteamGridDB.Xbox
                 }
                 else
                 {
-                    GridPanelStatus.Text = CurrentSelectedGame?.ImageFolder == null
+                    GridPanelStatus.Text = CurrentSelectedGame != null && !CanReplaceImage(CurrentSelectedGame)
                         ? "The Xbox app image location for this game is not accessible"
                         : "Failed to download or save image";
                 }

@@ -1,6 +1,6 @@
 # SteamGridDB for Xbox
 
-> **Community fork (1.6.4)** of [lirrik/steamgriddb-xbox](https://github.com/lirrik/steamgriddb-xbox) with fixes for games going missing from the list and artwork changes not sticking, plus extra square artwork sources.
+> **Community fork (1.7.0)** of [lirrik/steamgriddb-xbox](https://github.com/lirrik/steamgriddb-xbox) with fixes for games going missing from the list and artwork changes not sticking, plus extra square artwork sources.
 >
 > **Fixed**
 > - **Games missing or a different number found on every refresh** ([upstream #7](https://github.com/lirrik/steamgriddb-xbox/issues/7)): one unreadable manifest entry or locked image used to silently drop every remaining game from that store. Each entry is now handled on its own, manifests are re-read if the Xbox app is mid-write, and refreshes can no longer overlap.
@@ -15,6 +15,8 @@
 > - **Square artwork from the Xbox Store (box art), PlayStation Store (master art) and IGN**, shown next to SteamGridDB results with a source badge. Search uses the same public endpoints as the Playnite [XboxMetadata / IgnMetadata](https://github.com/Jeshibu/PlayniteExtensions) extensions and the PlayStation Store website.
 > - "Fix my library" falls back to store artwork when SteamGridDB has nothing and the store title matches exactly.
 > - **Add missing Steam games** (+ button): finds games installed in Steam that the Xbox app doesn't list and adds them to its custom library. It also lists the games the Xbox app did detect, unticked: tick any you can't see, because the Xbox app hides some detected games even when they have a cover (for example EA SPORTS FC 27). They launch through Steam (`steam.exe steam://rungameid/<id>`) rather than the game's exe, and get SteamGridDB or store cover art. The Xbox app is closed while its library is updated, and the widget waits until all of its processes (including the tray icon) have exited, because any one left running saves over the change. Windows asks once whether the widget may do this; otherwise it asks you to close the Xbox app, and the previous library file is backed up first. The custom library format follows [xbox-rom-manager](https://github.com/izzyjade06/xbox-rom-manager). It is not officially documented, so future Xbox app updates may change it.
+> - **Edit artwork for custom games** (games and apps added in the Xbox app or by this widget): every custom game gets an Edit button, using the closest SteamGridDB match for its name plus store art. Custom games with no image get a cover created for them.
+> - **Use your own image** for any game, from a link or (where Game Bar allows it) an image file on your PC. Use **Search another name** if the closest match is the wrong game.
 > - Manual search has a "store artwork only" result, so it works even without a SteamGridDB key.
 > - Games whose name is known (custom games, Epic, Ubisoft) are matched to SteamGridDB by exact name.
 > - Steam games SteamGridDB doesn't know by ID yet (new releases) get their name from the Steam store, so they no longer show as Unknown.

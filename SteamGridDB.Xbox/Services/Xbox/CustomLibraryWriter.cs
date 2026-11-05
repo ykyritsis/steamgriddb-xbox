@@ -118,6 +118,62 @@ namespace SteamGridDB.Xbox.Services.Xbox
         }
 
         /// <summary>
+        /// Points an existing custom entry at a new image file, backing the manifest up first.
+        /// </summary>
+        /// <returns>False if no entry with that ID exists.</returns>
+        public static async Task<bool> SetImagePathAsync(string entryId, string imagePath)
+        {
+            StorageFolder folder = await GetManifestFolderAsync();
+            JsonObject root = await ReadManifestAsync();
+            JsonObject entry = FindEntry(GetGameCache(root), entryId);
+
+            if (entry == null)
+            {
+                return false;
+            }
+
+            await BackupManifestAsync(folder);
+
+            entry["imagePath"] = JsonValue.CreateStringValue(imagePath);
+
+            StorageFile manifest = await folder.CreateFileAsync($"{customFolderName}.manifest", CreationCollisionOption.ReplaceExisting);
+            await FileIO.WriteTextAsync(manifest, root.Stringify());
+
+            return true;
+        }
+
+        /// <summary>
+        /// Returns the image path currently stored for a custom entry, or null if the entry does not exist.
+        /// </summary>
+        public static async Task<string> GetImagePathAsync(string entryId)
+        {
+            JsonObject entry = FindEntry(GetGameCache(await ReadManifestAsync()), entryId);
+
+            return entry?.GetNamedString("imagePath", string.Empty);
+        }
+
+        /// <summary>
+        /// Finds an entry by key, or by its "id" field (entries the Xbox app creates use unbraced GUIDs, ours braced ones).
+        /// </summary>
+        private static JsonObject FindEntry(JsonObject gameCache, string entryId)
+        {
+            if (string.IsNullOrEmpty(entryId))
+            {
+                return null;
+            }
+
+            if (gameCache.TryGetValue(entryId, out IJsonValue byKey) && byKey.ValueType == JsonValueType.Object)
+            {
+                return byKey.GetObject();
+            }
+
+            return gameCache
+                .Where(e => e.Value.ValueType == JsonValueType.Object)
+                .Select(e => e.Value.GetObject())
+                .FirstOrDefault(e => string.Equals(e.GetNamedString("id", string.Empty), entryId, StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>
         /// Returns how many of the given entry IDs are currently in the manifest (to check the Xbox app did not save over them).
         /// </summary>
         public static async Task<int> CountEntriesAsync(IEnumerable<string> ids)

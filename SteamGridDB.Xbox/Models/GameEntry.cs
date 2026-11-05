@@ -82,6 +82,8 @@ namespace SteamGridDB.Xbox.Models
                 {
                     platform = value;
                     OnPropertyChanged();
+                    OnPropertyChanged(nameof(EditButtonVisibility));
+                    OnPropertyChanged(nameof(SearchButtonVisibility));
                 }
             }
         }
@@ -144,10 +146,12 @@ namespace SteamGridDB.Xbox.Models
         }
 
         // Edit button visible when there is a match
-        public Visibility EditButtonVisibility => HasSteamGridDBMatch ? Visibility.Visible : Visibility.Collapsed;
+        // Custom games (added in the Xbox app or by the widget) can always be edited: their name is known,
+        // so the artwork panel can search by it even without an exact SteamGridDB match
+        public Visibility EditButtonVisibility => HasSteamGridDBMatch || Platform == GamePlatform.Custom ? Visibility.Visible : Visibility.Collapsed;
 
         // Search button visible when there is no match
-        public Visibility SearchButtonVisibility => !HasSteamGridDBMatch ? Visibility.Visible : Visibility.Collapsed;
+        public Visibility SearchButtonVisibility => !HasSteamGridDBMatch && Platform != GamePlatform.Custom ? Visibility.Visible : Visibility.Collapsed;
 
         public bool HasBackup
         {
