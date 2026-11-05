@@ -19,6 +19,10 @@ namespace SteamGridDB.Xbox.Services.Artwork
     {
         public const uint DefaultMaxSize = 1024;
 
+        // The Xbox app ignored a 128 px cover (a SteamGridDB icon) and kept its own artwork; covers it accepted were all
+        // much larger, so small images are scaled up to at least this size
+        public const uint MinimumSize = 512;
+
         /// <param name="source">Raw downloaded image bytes.</param>
         /// <param name="asJpeg">Encode as JPEG instead of PNG (for target files with a .jpg extension).</param>
         /// <param name="maxSize">Maximum width/height of the output.</param>
@@ -48,7 +52,7 @@ namespace SteamGridDB.Xbox.Services.Artwork
                 uint width = frame.PixelWidth;
                 uint height = frame.PixelHeight;
                 uint side = Math.Min(width, height);
-                uint target = Math.Min(side, maxSize);
+                uint target = Math.Max(Math.Min(side, maxSize), Math.Min(MinimumSize, maxSize));
                 double scale = (double)target / side;
                 uint scaledWidth = Math.Max(target, (uint)Math.Round(width * scale));
                 uint scaledHeight = Math.Max(target, (uint)Math.Round(height * scale));
