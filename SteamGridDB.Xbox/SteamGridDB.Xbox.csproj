@@ -219,6 +219,18 @@
       <Version>6.2.14</Version>
     </PackageReference>
   </ItemGroup>
+  <ItemGroup>
+    <!-- FullTrustProcessLauncher, used to start the XboxLibraryHelper companion -->
+    <SDKReference Include="WindowsDesktop, Version=$(TargetPlatformVersion)">
+      <Name>Windows Desktop Extensions for the UWP</Name>
+    </SDKReference>
+    <Content Include="XboxLibraryHelper\XboxLibraryHelper.exe" />
+  </ItemGroup>
+  <!-- The companion is a tiny .NET Framework program; build it with the C# compiler included in Windows -->
+  <Target Name="BuildXboxLibraryHelper" BeforeTargets="BeforeBuild" Inputs="..\XboxLibraryHelper\XboxLibraryHelper.cs" Outputs="XboxLibraryHelper\XboxLibraryHelper.exe">
+    <MakeDir Directories="XboxLibraryHelper" />
+    <Exec Command="&quot;$(WINDIR)\Microsoft.NET\Framework64\v4.0.30319\csc.exe&quot; /nologo /optimize /target:winexe /platform:anycpu /out:XboxLibraryHelper\XboxLibraryHelper.exe ..\XboxLibraryHelper\XboxLibraryHelper.cs" />
+  </Target>
   <PropertyGroup>
     <XboxGameBar-Platform Condition="'$(Platform)' == 'x86'">win32</XboxGameBar-Platform>
     <XboxGameBar-Platform Condition="'$(Platform)' != 'x86'">$(Platform)</XboxGameBar-Platform>

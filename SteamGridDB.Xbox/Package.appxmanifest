@@ -6,14 +6,15 @@
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
   xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-  IgnorableNamespaces="uap uap3 mp rescap">
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  IgnorableNamespaces="uap uap3 mp rescap desktop">
 
   <!-- Community fork identity: installs side by side with the Microsoft Store version.
        The publisher must match the signing certificate created by .github/workflows/build.yml. -->
   <Identity
     Name="SteamGridDBforXbox.Community"
     Publisher="CN=SteamGridDB for Xbox Community Build"
-    Version="1.7.7.0" />
+    Version="1.7.8.0" />
 
   <mp:PhoneIdentity PhoneProductId="556a41b4-fae4-4e6f-925e-cd8945b576d5" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 
@@ -72,6 +73,8 @@
             </uap3:Properties>
           </uap3:AppExtension>
         </uap3:Extension>
+        <!-- Companion that restarts the Xbox app around changes to its custom library (see XboxLibraryHelper.cs) -->
+        <desktop:Extension Category="windows.fullTrustProcess" Executable="XboxLibraryHelper\XboxLibraryHelper.exe" />
       </Extensions>
     </Application>
   </Applications>
@@ -119,6 +122,8 @@
     <rescap:Capability Name="broadFileSystemAccess" />
     <!-- Lets "Add missing Steam games" close the Xbox app so it does not overwrite its custom library while it is updated -->
     <rescap:Capability Name="appDiagnostics" />
+    <!-- Needed to run the XboxLibraryHelper companion, which the sandboxed widget cannot replace -->
+    <rescap:Capability Name="runFullTrust" />
     <Capability Name="internetClient" />
   </Capabilities>
 </Package>

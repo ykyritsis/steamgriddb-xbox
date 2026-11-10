@@ -1273,16 +1273,21 @@ namespace SteamGridDB.Xbox
                     }
                 }
 
-                if (!await EnsureXboxAppClosedAsync())
+                // The companion restarts the Xbox app around the change itself; without it, close the app first
+                if (!CustomLibraryWriter.IsHelperAvailable && !await EnsureXboxAppClosedAsync())
                 {
                     StatusText.Text = "No games were added";
 
                     return;
                 }
 
+                StatusText.Text = "Updating the Xbox app's library...";
+
                 List<string> addedIds = await CustomLibraryWriter.AddEntriesAsync(entries);
 
-                bool reopened = await ReopenXboxAppAsync();
+                bool reopened = CustomLibraryWriter.LastCommitUsedHelper
+                    ? CustomLibraryWriter.LastCommitReopenedXboxApp
+                    : await ReopenXboxAppAsync();
 
                 // Watch for a while: an overwrite shows up within seconds of the Xbox app starting
                 int kept = 0;
@@ -1854,7 +1859,7 @@ namespace SteamGridDB.Xbox
             if (!string.Equals(await CustomLibraryWriter.GetImagePathAsync(game.XboxPlatformId, game.Platform == GamePlatform.App), imagePath, StringComparison.OrdinalIgnoreCase))
             {
                 // The Xbox app is restarted around the change (it is reopened afterwards if it was open)
-                if (!await EnsureXboxAppClosedAsync())
+                if (!CustomLibraryWriter.IsHelperAvailable && !await EnsureXboxAppClosedAsync())
                 {
                     StatusText.Text = $"The cover for {game.Name} was not added";
 
@@ -1868,7 +1873,11 @@ namespace SteamGridDB.Xbox
                     return false;
                 }
 
-                await ReopenXboxAppAsync();
+                if (!CustomLibraryWriter.LastCommitUsedHelper)
+                {
+                    await ReopenXboxAppAsync();
+                }
+
                 await Task.Delay(3000);
 
                 // The Xbox app's background helper can undo edits from its memory; say so rather than claim success

@@ -112,8 +112,7 @@ namespace SteamGridDB.Xbox.Services.Xbox
                 }
             }
 
-            StorageFile manifest = await folder.CreateFileAsync($"{customFolderName}.manifest", CreationCollisionOption.ReplaceExisting);
-            await FileIO.WriteTextAsync(manifest, root.Stringify());
+            await CommitAsync(folder, root, false);
 
             return addedIds;
         }
@@ -138,8 +137,7 @@ namespace SteamGridDB.Xbox.Services.Xbox
 
             entry["imagePath"] = JsonValue.CreateStringValue(imagePath);
 
-            StorageFile manifest = await folder.CreateFileAsync($"{customFolderName}.manifest", CreationCollisionOption.ReplaceExisting);
-            await FileIO.WriteTextAsync(manifest, root.Stringify());
+            await CommitAsync(folder, root, apps);
 
             return true;
         }
@@ -195,6 +193,113 @@ namespace SteamGridDB.Xbox.Services.Xbox
             "XboxGameBarWidgets.exe",
             "XboxPcAppFT.exe"
         };
+
+        private const string helperFolderName = "XboxLibraryHelper";
+        private const string helperResultFileName = "result.txt";
+
+        /// <summary>
+        /// Whether Windows can run the XboxLibraryHelper companion (desktop editions of Windows).
+        /// </summary>
+        public static bool IsHelperAvailable => Windows.Foundation.Metadata.ApiInformation.IsApiContractPresent("Windows.ApplicationModel.FullTrustAppContract", 1, 0);
+
+        /// <summary>
+        /// Whether the last library change was applied by the companion (which restarts the Xbox app around it).
+        /// </summary>
+        public static bool LastCommitUsedHelper { get; private set; }
+
+        /// <summary>
+        /// Whether the companion left the Xbox app running after the last change.
+        /// </summary>
+        public static bool LastCommitReopenedXboxApp { get; private set; }
+
+        /// <summary>
+        /// Saves a custom library manifest. The Xbox app keeps the library in memory in a background process
+        /// (XboxPcAppFT) and saves that copy over the file, so the change only survives if the app and that process are
+        /// restarted around it. The sandboxed widget cannot end them; the full-trust XboxLibraryHelper companion does,
+        /// swapping the new file in and reopening the Xbox app if it was open. Falls back to writing directly.
+        /// </summary>
+        private static async Task CommitAsync(StorageFolder manifestFolder, JsonObject root, bool apps)
+        {
+            LastCommitUsedHelper = false;
+            LastCommitReopenedXboxApp = false;
+
+            string json = root.Stringify();
+
+            if (IsHelperAvailable)
+            {
+                StorageFile pending = null;
+
+                try
+                {
+                    StorageFolder work = await ApplicationData.Current.LocalFolder.CreateFolderAsync(helperFolderName, CreationCollisionOption.OpenIfExists);
+
+                    if (await work.TryGetItemAsync(helperResultFileName) is StorageFile oldResult)
+                    {
+                        await oldResult.DeleteAsync();
+                    }
+
+                    pending = await work.CreateFileAsync(apps ? "apps.manifest" : "games.manifest", CreationCollisionOption.ReplaceExisting);
+                    await FileIO.WriteTextAsync(pending, json);
+
+                    await Windows.ApplicationModel.FullTrustProcessLauncher.LaunchFullTrustProcessForCurrentAppAsync();
+
+                    // The companion normally finishes in about a second
+                    for (int attempt = 0; attempt < 80; attempt++)
+                    {
+                        await Task.Delay(250);
+
+                        if (!(await work.TryGetItemAsync(helperResultFileName) is StorageFile result))
+                        {
+                            continue;
+                        }
+
+                        string text;
+
+                        try
+                        {
+                            text = await FileIO.ReadTextAsync(result);
+                        }
+                        catch (Exception)
+                        {
+                            // Still being written
+                            continue;
+                        }
+
+                        if (text.StartsWith("ok", StringComparison.Ordinal))
+                        {
+                            LastCommitUsedHelper = true;
+                            LastCommitReopenedXboxApp = text.Contains("reopened=1");
+
+                            return;
+                        }
+
+                        System.Diagnostics.Debug.WriteLine($"XboxLibraryHelper reported: {text}");
+
+                        break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Could not use XboxLibraryHelper: {ex.Message}");
+                }
+
+                // Never leave a pending change behind for a later run to apply unexpectedly
+                try
+                {
+                    if (pending != null)
+                    {
+                        await pending.DeleteAsync();
+                    }
+                }
+                catch (Exception)
+                {
+                    // Already applied and removed by the companion
+                }
+            }
+
+            StorageFile manifest = await manifestFolder.CreateFileAsync($"{customFolderName}.manifest", CreationCollisionOption.ReplaceExisting);
+            await FileIO.WriteTextAsync(manifest, json);
+        }
 
         private const string widgetsHostProcess = "XboxGameBarWidgets.exe";
         private const string xboxAppId = "Microsoft.Xbox.App";
