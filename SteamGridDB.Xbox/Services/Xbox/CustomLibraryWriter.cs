@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Windows.Data.Json;
 using Windows.Storage;
 using Windows.System;
+using Windows.System.Diagnostics;
 
 namespace SteamGridDB.Xbox.Services.Xbox
 {
@@ -184,8 +185,26 @@ namespace SteamGridDB.Xbox.Services.Xbox
             return ids.Count(id => gameCache.ContainsKey(id));
         }
 
+        // Processes of the Xbox app's package that host Game Bar widgets rather than the app itself. They run whenever
+        // Game Bar is open (so the user cannot close them) and, as tested, do not save over entries added to the library.
+        private static readonly HashSet<string> gameBarHelperProcesses = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "XboxGameBarWidgets.exe",
+            "XboxPcAppFT.exe"
+        };
+
         /// <summary>
-        /// Number of running Xbox app processes, or -1 when that cannot be determined (no diagnostic access).
+        /// Whether a process is part of the Xbox app proper (window, tray icon...), which must be closed before writing.
+        /// Anything not known to be a Game Bar helper counts, so a renamed app process is never ignored by mistake.
+        /// </summary>
+        private static bool IsLibraryProcess(ProcessDiagnosticInfo process)
+        {
+            return !gameBarHelperProcesses.Contains(process.ExecutableFileName ?? string.Empty);
+        }
+
+        /// <summary>
+        /// Number of running Xbox app processes that must be closed (Game Bar helpers excluded), or -1 when that cannot
+        /// be determined (no diagnostic access).
         /// </summary>
         public static async Task<int> GetRunningProcessCountAsync()
         {
@@ -198,7 +217,7 @@ namespace SteamGridDB.Xbox.Services.Xbox
 
                 IList<AppDiagnosticInfo> infos = await AppDiagnosticInfo.RequestInfoForPackageAsync(XboxAppPackageFamilyName);
 
-                return infos.SelectMany(i => i.GetResourceGroups()).Sum(g => g.GetProcessDiagnosticInfos().Count);
+                return infos.SelectMany(i => i.GetResourceGroups()).Sum(g => g.GetProcessDiagnosticInfos().Count(IsLibraryProcess));
             }
             catch (Exception ex)
             {
@@ -227,7 +246,8 @@ namespace SteamGridDB.Xbox.Services.Xbox
                 {
                     foreach (AppResourceGroupInfo group in info.GetResourceGroups())
                     {
-                        if (group.GetProcessDiagnosticInfos().Count == 0)
+                        // Leave the Game Bar helpers alone: closing them would take Xbox's own widgets down with them
+                        if (!group.GetProcessDiagnosticInfos().Any(IsLibraryProcess))
                         {
                             continue;
                         }
@@ -242,8 +262,8 @@ namespace SteamGridDB.Xbox.Services.Xbox
                 }
 
                 // A successful terminate request does not mean the processes are gone. The Xbox app runs several
-                // (XboxPcApp, XboxPcAppFT, XboxPcTray...) and any one left running can save over the library, so
-                // only report success once none are left.
+                // (XboxPcAppCE, XboxPcTray...) and any one left running can save over the library, so only report
+                // success once none are left.
                 for (int attempt = 0; attempt < 10; attempt++)
                 {
                     if (await GetRunningProcessCountAsync() == 0)
