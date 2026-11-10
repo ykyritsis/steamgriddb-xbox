@@ -3,7 +3,9 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 
 using Windows.Storage;
+using Windows.UI;
 using Windows.UI.Xaml;
+using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Media.Imaging;
 
 namespace SteamGridDB.Xbox.Models
@@ -84,6 +86,8 @@ namespace SteamGridDB.Xbox.Models
                     OnPropertyChanged();
                     OnPropertyChanged(nameof(EditButtonVisibility));
                     OnPropertyChanged(nameof(SearchButtonVisibility));
+                    OnPropertyChanged(nameof(PlatformLabel));
+                    OnPropertyChanged(nameof(PlatformBrush));
                 }
             }
         }
@@ -163,6 +167,7 @@ namespace SteamGridDB.Xbox.Models
                     hasBackup = value;
                     OnPropertyChanged();
                     OnPropertyChanged(nameof(RestoreButtonVisibility));
+                    OnPropertyChanged(nameof(ArtworkStatus));
                 }
             }
         }
@@ -181,6 +186,62 @@ namespace SteamGridDB.Xbox.Models
                     OnPropertyChanged(nameof(HasImage));
                     OnPropertyChanged(nameof(ImageVisibility));
                     OnPropertyChanged(nameof(PlaceholderVisibility));
+                    OnPropertyChanged(nameof(ArtworkStatus));
+                }
+            }
+        }
+
+        /// <summary>
+        /// What the Xbox app currently shows for this entry, in plain words.
+        /// </summary>
+        public string ArtworkStatus => Image == null ? "No cover yet" : HasBackup ? "Custom cover" : "Xbox app cover";
+
+        /// <summary>
+        /// Short store name shown on the row's badge.
+        /// </summary>
+        public string PlatformLabel
+        {
+            get
+            {
+                switch (Platform)
+                {
+                    case GamePlatform.Ubisoft:
+                        return "Ubisoft";
+                    case GamePlatform.BattleNet:
+                        return "Battle.net";
+                    case GamePlatform.Custom:
+                        return "Custom";
+                    default:
+                        return Platform.ToString();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Badge colour for the store, so a long list can be scanned by colour.
+        /// </summary>
+        public Brush PlatformBrush
+        {
+            get
+            {
+                switch (Platform)
+                {
+                    case GamePlatform.Steam:
+                        return new SolidColorBrush(Color.FromArgb(0xFF, 0x2A, 0x47, 0x5E));
+                    case GamePlatform.Epic:
+                        return new SolidColorBrush(Color.FromArgb(0xFF, 0x4A, 0x4A, 0x4A));
+                    case GamePlatform.GOG:
+                        return new SolidColorBrush(Color.FromArgb(0xFF, 0x6D, 0x2F, 0x83));
+                    case GamePlatform.Ubisoft:
+                        return new SolidColorBrush(Color.FromArgb(0xFF, 0x1F, 0x5F, 0xBF));
+                    case GamePlatform.EA:
+                        return new SolidColorBrush(Color.FromArgb(0xFF, 0xB2, 0x3B, 0x33));
+                    case GamePlatform.Custom:
+                        return new SolidColorBrush(Color.FromArgb(0xFF, 0x10, 0x7C, 0x10));
+                    case GamePlatform.App:
+                        return new SolidColorBrush(Color.FromArgb(0xFF, 0x4A, 0x55, 0x68));
+                    default:
+                        return new SolidColorBrush(Color.FromArgb(0xFF, 0x3A, 0x3A, 0x3A));
                 }
             }
         }

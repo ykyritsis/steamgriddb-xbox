@@ -97,6 +97,7 @@
                         Height="40"
                         Click="AddMissingSteamGamesButton_Click"
                         Style="{StaticResource FluentIconButton}"
+                        AutomationProperties.Name="Add missing Steam games"
                         ToolTipService.ToolTip="Add missing Steam games">
                         <FontIcon
                             FontFamily="Segoe MDL2 Assets"
@@ -109,7 +110,8 @@
                         Height="40"
                         Click="FixLibraryButton_Click"
                         Style="{StaticResource FluentIconButton}"
-                        ToolTipService.ToolTip="Fix my library">
+                        AutomationProperties.Name="Fix my library"
+                        ToolTipService.ToolTip="Fix my library: apply the best cover to every game">
                         <FontIcon
                             FontFamily="Segoe MDL2 Assets"
                             FontSize="16"
@@ -121,7 +123,8 @@
                         Height="40"
                         Click="RestoreChangesButton_Click"
                         Style="{StaticResource FluentIconButton}"
-                        ToolTipService.ToolTip="Restore my changes">
+                        AutomationProperties.Name="Re-apply my covers"
+                        ToolTipService.ToolTip="Re-apply my covers (if the Xbox app reset them)">
                         <FontIcon
                             FontFamily="Segoe MDL2 Assets"
                             FontSize="16"
@@ -132,6 +135,7 @@
                         Height="40"
                         Click="RefreshButton_Click"
                         Style="{StaticResource FluentIconButton}"
+                        AutomationProperties.Name="Refresh"
                         ToolTipService.ToolTip="Refresh">
                         <FontIcon
                             FontFamily="Segoe MDL2 Assets"
@@ -143,6 +147,7 @@
                         Height="40"
                         Click="SettingsButton_Click"
                         Style="{StaticResource FluentIconButton}"
+                        AutomationProperties.Name="Settings"
                         ToolTipService.ToolTip="Settings">
                         <FontIcon
                             FontFamily="Segoe MDL2 Assets"
@@ -318,26 +323,38 @@
                                         TextTrimming="CharacterEllipsis"
                                         TextWrapping="NoWrap" />
 
-                                    <!--  Image Filename  -->
-                                    <TextBlock
-                                        Margin="0,2,0,0"
-                                        FontSize="12"
-                                        Foreground="#99FFFFFF"
-                                        Opacity="0.9"
-                                        Text="{x:Bind ImageFileName, Mode=OneWay}"
-                                        TextTrimming="CharacterEllipsis"
-                                        TextWrapping="NoWrap" />
+                                    <!--  Store badge and cover status  -->
+                                    <StackPanel
+                                        Margin="0,5,0,0"
+                                        Orientation="Horizontal"
+                                        Spacing="8">
+                                        <Border
+                                            Padding="7,1,7,2"
+                                            VerticalAlignment="Center"
+                                            Background="{x:Bind PlatformBrush, Mode=OneWay}"
+                                            CornerRadius="9">
+                                            <TextBlock
+                                                FontSize="10"
+                                                FontWeight="SemiBold"
+                                                Foreground="#FFFFFF"
+                                                Text="{x:Bind PlatformLabel, Mode=OneWay}" />
+                                        </Border>
+                                        <TextBlock
+                                            VerticalAlignment="Center"
+                                            FontSize="12"
+                                            Foreground="#B3FFFFFF"
+                                            Text="{x:Bind ArtworkStatus, Mode=OneWay}" />
+                                    </StackPanel>
 
-                                    <!--  Platform info  -->
+                                    <!--  Store ID and date added  -->
                                     <TextBlock
                                         Margin="0,4,0,0"
                                         FontSize="10"
-                                        Foreground="#99FFFFFF"
-                                        Opacity="0.8">
-                                        <Run Text="{x:Bind Platform, Mode=OneWay}" />
-                                        <Run Text=" • " />
+                                        Foreground="#73FFFFFF"
+                                        TextTrimming="CharacterEllipsis"
+                                        TextWrapping="NoWrap">
                                         <Run Text="{x:Bind ExternalPlatformId, Mode=OneWay}" />
-                                        <Run Text=" • " />
+                                        <Run Text=" • added " />
                                         <Run Text="{x:Bind AddedDateFormatted, Mode=OneWay}" />
                                     </TextBlock>
                                 </StackPanel>
@@ -355,7 +372,8 @@
                                         Click="RestoreBackup_Click"
                                         Style="{StaticResource FluentIconButton}"
                                         Tag="{x:Bind}"
-                                        ToolTipService.ToolTip="Restore backup"
+                                        AutomationProperties.Name="Restore original cover"
+                                        ToolTipService.ToolTip="Restore original cover"
                                         Visibility="{x:Bind RestoreButtonVisibility, Mode=OneWay}">
                                         <FontIcon
                                             FontFamily="Segoe MDL2 Assets"
@@ -372,7 +390,8 @@
                                             Click="SearchGameImage_Click"
                                             Style="{StaticResource FluentIconButton}"
                                             Tag="{x:Bind}"
-                                            ToolTipService.ToolTip="Search manually"
+                                            AutomationProperties.Name="Search for a cover"
+                                            ToolTipService.ToolTip="Search for a cover"
                                             Visibility="{x:Bind SearchButtonVisibility, Mode=OneWay}">
                                             <FontIcon
                                                 FontFamily="Segoe MDL2 Assets"
@@ -387,7 +406,8 @@
                                             Click="EditGameImage_Click"
                                             Style="{StaticResource FluentIconButton}"
                                             Tag="{x:Bind}"
-                                            ToolTipService.ToolTip="Change artwork"
+                                            AutomationProperties.Name="Change cover"
+                                            ToolTipService.ToolTip="Change cover"
                                             Visibility="{x:Bind EditButtonVisibility, Mode=OneWay}">
                                             <FontIcon
                                                 FontFamily="Segoe MDL2 Assets"
@@ -409,11 +429,23 @@
                 Background="#252525"
                 BorderBrush="#333333"
                 BorderThickness="0,1,0,0">
-                <TextBlock
-                    x:Name="StatusText"
-                    FontSize="11"
-                    Foreground="#99FFFFFF"
-                    Text="Loading..." />
+                <StackPanel Spacing="6">
+                    <ProgressBar
+                        x:Name="BusyBar"
+                        Height="2"
+                        Background="Transparent"
+                        Foreground="#107C10"
+                        IsIndeterminate="True"
+                        Visibility="Collapsed" />
+                    <TextBlock
+                        x:Name="StatusText"
+                        FontSize="11"
+                        Foreground="#99FFFFFF"
+                        Text="Loading..."
+                        TextTrimming="CharacterEllipsis"
+                        TextWrapping="Wrap"
+                        MaxLines="2" />
+                </StackPanel>
             </Border>
         </Grid>
 
@@ -707,7 +739,7 @@
                                 FontSize="12"
                                 Foreground="#99FFFFFF"
                                 Opacity="0.9"
-                                Text="{x:Bind CurrentSelectedGame.ImageFileName, Mode=OneWay}"
+                                Text="{x:Bind CurrentSelectedGame.ArtworkStatus, Mode=OneWay}"
                                 TextTrimming="CharacterEllipsis"
                                 TextWrapping="NoWrap" />
 
@@ -717,7 +749,7 @@
                                 FontSize="12"
                                 Foreground="#99FFFFFF"
                                 Opacity="0.8">
-                                <Run Text="{x:Bind CurrentSelectedGame.Platform, Mode=OneWay}" />
+                                <Run Text="{x:Bind CurrentSelectedGame.PlatformLabel, Mode=OneWay}" />
                                 <Run Text=" • " />
                                 <Run Text="{x:Bind CurrentSelectedGame.ExternalPlatformId, Mode=OneWay}" />
                                 <Run Text=" • " />
