@@ -185,13 +185,55 @@ namespace SteamGridDB.Xbox.Services.Xbox
             return ids.Count(id => gameCache.ContainsKey(id));
         }
 
-        // Processes of the Xbox app's package that host Game Bar widgets rather than the app itself. They run whenever
-        // Game Bar is open (so the user cannot close them) and, as tested, do not save over entries added to the library.
+        // Processes of the Xbox app's package that serve Game Bar rather than the app itself. They run whenever Game Bar
+        // is open, so they never stay closed and must not be counted as "the Xbox app is still running".
+        // XboxPcAppFT is restarted by Windows on demand. It keeps the custom library in memory once the Xbox app has
+        // run: entries added to the file are picked up anyway, but edits and removals are undone from that memory
+        // unless it is restarted before writing (tested on Xbox app 2612).
         private static readonly HashSet<string> gameBarHelperProcesses = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "XboxGameBarWidgets.exe",
             "XboxPcAppFT.exe"
         };
+
+        private const string widgetsHostProcess = "XboxGameBarWidgets.exe";
+        private const string xboxAppId = "Microsoft.Xbox.App";
+
+        /// <summary>
+        /// Opens the Xbox app again after its library was updated.
+        /// </summary>
+        public static async Task<bool> TryLaunchXboxAppAsync()
+        {
+            try
+            {
+                if (await AppDiagnosticInfo.RequestAccessAsync() == DiagnosticAccessStatus.Allowed)
+                {
+                    IList<AppDiagnosticInfo> infos = await AppDiagnosticInfo.RequestInfoForPackageAsync(XboxAppPackageFamilyName);
+                    AppDiagnosticInfo app = infos.FirstOrDefault(i => (i.AppInfo?.AppUserModelId ?? string.Empty).EndsWith("!" + xboxAppId, StringComparison.OrdinalIgnoreCase));
+
+                    if (app != null)
+                    {
+                        AppActivationResult result = await app.LaunchAsync();
+
+                        if (result.ExtendedError == null)
+                        {
+                            return true;
+                        }
+
+                        System.Diagnostics.Debug.WriteLine($"Could not launch the Xbox app directly: {result.ExtendedError.Message}");
+                    }
+                }
+
+                // The Xbox app registers this protocol; works without diagnostic access
+                return await Launcher.LaunchUriAsync(new Uri("msxbox:"));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Could not reopen the Xbox app: {ex.Message}");
+
+                return false;
+            }
+        }
 
         /// <summary>
         /// Whether a process is part of the Xbox app proper (window, tray icon...), which must be closed before writing.
@@ -246,8 +288,9 @@ namespace SteamGridDB.Xbox.Services.Xbox
                 {
                     foreach (AppResourceGroupInfo group in info.GetResourceGroups())
                     {
-                        // Leave the Game Bar helpers alone: closing them would take Xbox's own widgets down with them
-                        if (!group.GetProcessDiagnosticInfos().Any(IsLibraryProcess))
+                        // Restart the background helper as well (see gameBarHelperProcesses); only the process that
+                        // hosts Xbox's own Game Bar widgets is left alone when it is in a group of its own
+                        if (!group.GetProcessDiagnosticInfos().Any(p => !string.Equals(p.ExecutableFileName, widgetsHostProcess, StringComparison.OrdinalIgnoreCase)))
                         {
                             continue;
                         }

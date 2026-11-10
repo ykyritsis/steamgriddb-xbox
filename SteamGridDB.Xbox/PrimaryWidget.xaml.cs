@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -1228,7 +1228,7 @@ namespace SteamGridDB.Xbox
                 {
                     Text = "Ticked games will be added as custom games that launch through Steam, with cover art." +
                            (missingGames.Count == 0 ? " All installed Steam games are detected, but the Xbox app sometimes hides some of them." : string.Empty) +
-                           $"{coverHint}\n\nThe Xbox app will be closed while its library is updated.",
+                           $"{coverHint}\n\nThe Xbox app restarts briefly while its library is updated.",
                     TextWrapping = TextWrapping.Wrap
                 });
                 content.Children.Add(new ScrollViewer { Content = list, MaxHeight = 260 });
@@ -1282,12 +1282,12 @@ namespace SteamGridDB.Xbox
 
                 List<string> addedIds = await CustomLibraryWriter.AddEntriesAsync(entries);
 
-                await CloseXboxAppIfRestartedAsync();
+                bool reopened = await ReopenXboxAppAsync();
 
                 // Watch for a while: an overwrite shows up within seconds of the Xbox app starting
                 int kept = 0;
 
-                for (int check = 0; check < 5; check++)
+                for (int check = 0; check < 4; check++)
                 {
                     await Task.Delay(2000);
 
@@ -1299,8 +1299,10 @@ namespace SteamGridDB.Xbox
                     }
                 }
 
+                string nextStep = reopened ? "the Xbox app has been reopened" : $"open the Xbox app to see {(kept == 1 ? "it" : "them")}";
+
                 StatusText.Text = kept == addedIds.Count
-                    ? $"Added {kept} Steam game{(kept == 1 ? string.Empty : "s")} to the Xbox app - open the Xbox app to see {(kept == 1 ? "it" : "them")}"
+                    ? $"Added {kept} Steam game{(kept == 1 ? string.Empty : "s")} to the Xbox app - {nextStep}"
                     : $"The Xbox app overwrote the change ({kept} of {addedIds.Count} kept) - close it completely and try again";
 
                 // The custom library changed, so reload to show the new entries here too
@@ -1327,7 +1329,10 @@ namespace SteamGridDB.Xbox
         /// <returns>False if the user cancelled.</returns>
         private async Task<bool> EnsureXboxAppClosedAsync()
         {
-            StatusText.Text = "Closing the Xbox app...";
+            StatusText.Text = "Updating the Xbox app's library...";
+
+            // Remember whether to bring the Xbox app back afterwards
+            reopenXboxAppAfterWrite = await CustomLibraryWriter.GetRunningProcessCountAsync() > 0;
 
             bool closedAutomatically = await CustomLibraryWriter.TryCloseXboxAppAsync();
 
@@ -1363,18 +1368,32 @@ namespace SteamGridDB.Xbox
             return true;
         }
 
+        // Set by EnsureXboxAppClosedAsync: the Xbox app was open, so it is reopened once the library has been written
+        private bool reopenXboxAppAfterWrite;
+
         /// <summary>
-        /// In Xbox full screen experience Windows restarts the Xbox app within a second of closing it, so it may already
-        /// have loaded the old library - close it once more so the restart reads the new one.
+        /// Brings the Xbox app back after its library was written, if it was open before. Returns true when it is running.
         /// </summary>
-        private static async Task CloseXboxAppIfRestartedAsync()
+        private async Task<bool> ReopenXboxAppAsync()
         {
             await Task.Delay(1500);
 
             if (await CustomLibraryWriter.GetRunningProcessCountAsync() > 0)
             {
+                // In Xbox full screen experience Windows restarts the Xbox app within a second of closing it, so it may
+                // already have loaded the old library - close it once more so the next start reads the new one
                 await CustomLibraryWriter.TryCloseXboxAppAsync();
+                await Task.Delay(1500);
+
+                if (await CustomLibraryWriter.GetRunningProcessCountAsync() > 0)
+                {
+                    return true;
+                }
+
+                reopenXboxAppAfterWrite = true;
             }
+
+            return reopenXboxAppAfterWrite && await CustomLibraryWriter.TryLaunchXboxAppAsync();
         }
 
         private static string GetSteamLaunchUrl(string appId) => $"steam://rungameid/{appId}";
@@ -1834,12 +1853,8 @@ namespace SteamGridDB.Xbox
             // Only the custom library needs updating if it does not point at this file yet
             if (!string.Equals(await CustomLibraryWriter.GetImagePathAsync(game.XboxPlatformId, game.Platform == GamePlatform.App), imagePath, StringComparison.OrdinalIgnoreCase))
             {
-                ContentDialog confirm = CreateDialog(
-                    "Add a cover to this game",
-                    $"{game.Name} has no image in the Xbox app yet. To add one, the Xbox app needs to be closed while its library is updated.",
-                    "Continue");
-
-                if (await confirm.ShowAsync() != ContentDialogResult.Primary || !await EnsureXboxAppClosedAsync())
+                // The Xbox app is restarted around the change (it is reopened afterwards if it was open)
+                if (!await EnsureXboxAppClosedAsync())
                 {
                     StatusText.Text = $"The cover for {game.Name} was not added";
 
@@ -1853,7 +1868,16 @@ namespace SteamGridDB.Xbox
                     return false;
                 }
 
-                await CloseXboxAppIfRestartedAsync();
+                await ReopenXboxAppAsync();
+                await Task.Delay(3000);
+
+                // The Xbox app's background helper can undo edits from its memory; say so rather than claim success
+                if (!string.Equals(await CustomLibraryWriter.GetImagePathAsync(game.XboxPlatformId, game.Platform == GamePlatform.App), imagePath, StringComparison.OrdinalIgnoreCase))
+                {
+                    StatusText.Text = $"The Xbox app undid the cover for {game.Name} - restart the PC, then try again";
+
+                    return false;
+                }
 
                 manifestReloadPending = true;
             }
@@ -1865,7 +1889,7 @@ namespace SteamGridDB.Xbox
 
             if (updateStatusText)
             {
-                StatusText.Text = $"Cover added for {game.Name} - open the Xbox app to see it";
+                StatusText.Text = $"Cover added for {game.Name}";
             }
 
             return true;
