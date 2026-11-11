@@ -62,7 +62,7 @@ namespace SteamGridDB.Xbox
                 }
 
                 List<InstalledSteamGame> installedGames = await SteamLibraryScanner.GetInstalledGamesAsync(steamFolder);
-                HashSet<string> inXboxApp = new HashSet<string>(GameEntries.Where(g => g.Platform == GamePlatform.Steam).Select(g => g.ExternalPlatformId));
+                HashSet<string> inXboxApp = new HashSet<string>(GameEntries.Where(g => g.Platform == GamePlatform.Steam && !g.IsPendingInXboxApp).Select(g => g.ExternalPlatformId));
                 List<string> existingLaunchArguments = await CustomLibraryWriter.GetExistingLaunchArgumentsAsync();
 
                 List<InstalledSteamGame> missingGames = installedGames
@@ -70,7 +70,7 @@ namespace SteamGridDB.Xbox
                     .ToList();
 
                 // The Xbox app hides third-party games that have no cover, which looks like they are missing too
-                int withoutCover = GameEntries.Count(g => g.Platform == GamePlatform.Steam && g.Image == null);
+                int withoutCover = GameEntries.Count(g => g.Platform == GamePlatform.Steam && !g.IsPendingInXboxApp && g.Image == null);
                 string coverHint = withoutCover > 0
                     ? $" {withoutCover} Steam game{(withoutCover == 1 ? " is" : "s are")} in the Xbox app but without a cover, which the Xbox app may hide - use Fix my library to add covers."
                     : string.Empty;

@@ -194,7 +194,28 @@ namespace SteamGridDB.Xbox.Models
         /// <summary>
         /// What the Xbox app currently shows for this entry, in plain words.
         /// </summary>
-        public string ArtworkStatus => Image == null ? "No cover yet" : HasBackup ? "Custom cover" : "Xbox app cover";
+        public string ArtworkStatus
+        {
+            get
+            {
+                if (IsPendingInXboxApp)
+                {
+                    // Installed in Steam, but the Xbox app has not listed it yet (it scans Steam when it starts)
+                    return Image == null ? "Not in the Xbox app yet" : "Not in the Xbox app yet - cover ready";
+                }
+
+                return Image == null ? "No cover yet" : HasBackup ? "Custom cover" : "Xbox app cover";
+            }
+        }
+
+        /// <summary>
+        /// True for a Steam game that is installed but not in the Xbox app's Steam list yet. Its cover can already be set:
+        /// the file is written where the Xbox app will look for it.
+        /// </summary>
+        public bool IsPendingInXboxApp
+        {
+            get; set;
+        }
 
         /// <summary>
         /// Short store name shown on the row's badge.

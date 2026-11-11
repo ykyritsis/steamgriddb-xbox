@@ -166,6 +166,8 @@ namespace SteamGridDB.Xbox
                     }
                 }
 
+                int pendingSteamGames = await AddPendingSteamGamesAsync(tmpGameList, folders);
+
                 try
                 {
                     using (SteamGridDbClient sgdbClient = CreateSteamGridDbClient())
@@ -199,6 +201,11 @@ namespace SteamGridDB.Xbox
                 int gameCount = tmpGameList.Count;
                 string status = $"Found {gameCount} game{(gameCount == 1 ? string.Empty : "s")}" +
                     (apps.Count > 0 ? $" and {apps.Count} app{(apps.Count == 1 ? string.Empty : "s")}" : string.Empty);
+
+                if (pendingSteamGames > 0)
+                {
+                    status += $", {pendingSteamGames} new Steam game{(pendingSteamGames == 1 ? " is" : "s are")} not in the Xbox app yet (it adds them when it restarts)";
+                }
 
                 if (unreadableEntries > 0)
                 {
@@ -278,10 +285,143 @@ namespace SteamGridDB.Xbox
 
                 manifestDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
                 manifestDebounceTimer.Tick += ManifestDebounceTimer_Tick;
+
+                // Steam installs do not touch the Xbox app's files, so look at Steam's own list now and then
+                steamCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(steamCheckSeconds) };
+                steamCheckTimer.Tick += SteamCheckTimer_Tick;
+                steamCheckTimer.Start();
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Could not watch manifests: {ex.Message}");
+            }
+        }
+
+        private const int steamCheckSeconds = 90;
+        private DispatcherTimer steamCheckTimer;
+
+        // The Steam games installed when the library was last loaded, to notice new installs and removals
+        private string loadedSteamSignature;
+
+        /// <summary>
+        /// Adds Steam games that are installed but that the Xbox app has not listed yet, so they show up here straight
+        /// after installing. The Xbox app only scans Steam when it starts; until then these rows are marked as pending,
+        /// and a cover chosen for one is written to the file the Xbox app will use for it.
+        /// </summary>
+        /// <returns>The number of pending games added.</returns>
+        private async Task<int> AddPendingSteamGamesAsync(List<GameEntry> games, List<StorageFolder> storeFolders)
+        {
+            int added = 0;
+
+            try
+            {
+                StorageFolder steamImages = storeFolders.FirstOrDefault(f => GamePlatformHelper.FromXboxDirectory(f.Name) == GamePlatform.Steam);
+                StorageFolder steamFolder = await SteamLibraryScanner.FindSteamFolderAsync(AppSettings.SteamPath);
+
+                if (steamFolder == null)
+                {
+                    loadedSteamSignature = null;
+
+                    return 0;
+                }
+
+                List<InstalledSteamGame> installed = await SteamLibraryScanner.GetInstalledGamesAsync(steamFolder);
+                loadedSteamSignature = GetSteamSignature(installed);
+
+                // Without the Xbox app's Steam folder there is nowhere to put a cover yet
+                if (steamImages == null)
+                {
+                    return 0;
+                }
+
+                HashSet<string> listed = new HashSet<string>(games.Where(g => g.Platform == GamePlatform.Steam).Select(g => g.ExternalPlatformId));
+                List<string> customLaunchArguments = await CustomLibraryWriter.GetExistingLaunchArgumentsAsync();
+
+                foreach (InstalledSteamGame game in installed)
+                {
+                    // Already listed by the Xbox app, or added as a custom entry that launches it through Steam
+                    if (listed.Contains(game.AppId) || customLaunchArguments.Any(args => LaunchesSteamApp(args, game.AppId)))
+                    {
+                        continue;
+                    }
+
+                    string imageFileName = $"steam_{game.AppId}{imageExtension}";
+                    BitmapImage image = null;
+
+                    if (await steamImages.TryGetItemAsync(imageFileName) is StorageFile imageFile)
+                    {
+                        try
+                        {
+                            image = await LoadBitmapAsync(imageFile);
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"Could not load image {imageFileName}: {ex.Message}");
+                        }
+                    }
+
+                    games.Add(new GameEntry
+                    {
+                        Name = game.Name,
+                        XboxPlatformId = game.AppId,
+                        ExternalPlatformId = game.AppId,
+                        ImageFileName = image == null ? "Not found" : imageFileName,
+                        ImageFilePath = Path.Combine(steamImages.Path, imageFileName),
+                        ImageFolder = steamImages,
+                        Platform = GamePlatform.Steam,
+                        AddedDate = DateTime.Now,
+                        Image = image,
+                        HasBackup = await steamImages.TryGetItemAsync(GetSiblingFileName(imageFileName, backupImageExtension)) != null,
+                        IsPendingInXboxApp = true
+                    });
+
+                    added++;
+                }
+            }
+            catch (Exception ex)
+            {
+                // Never let the Steam scan stop the Xbox app's own list from loading
+                System.Diagnostics.Debug.WriteLine($"Could not check Steam for new games: {ex.Message}");
+            }
+
+            return added;
+        }
+
+        private static string GetSteamSignature(IEnumerable<InstalledSteamGame> installed)
+        {
+            return string.Join(",", installed.Select(g => g.AppId).OrderBy(id => id, StringComparer.Ordinal));
+        }
+
+        /// <summary>
+        /// Reloads the list when a Steam game was installed or removed since the last load.
+        /// </summary>
+        private async void SteamCheckTimer_Tick(object sender, object e)
+        {
+            if (IsBusy || GridSelectionPanel.Visibility == Visibility.Visible || GameSearchPanel.Visibility == Visibility.Visible)
+            {
+                return;
+            }
+
+            try
+            {
+                StorageFolder steamFolder = await SteamLibraryScanner.FindSteamFolderAsync(AppSettings.SteamPath);
+
+                if (steamFolder == null || GetSteamSignature(await SteamLibraryScanner.GetInstalledGamesAsync(steamFolder)) == loadedSteamSignature)
+                {
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Could not check Steam for changes: {ex.Message}");
+
+                return;
+            }
+
+            // Something else may have started while Steam was being read
+            if (!IsBusy)
+            {
+                await LoadGameEntriesAsync();
             }
         }
 
