@@ -137,6 +137,10 @@
     </Compile>
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Services\AppSettings.cs" />
+    <Compile Include="Services\UpdateService.cs" />
+    <Compile Include="PrimaryWidget.Updates.cs">
+      <DependentUpon>PrimaryWidget.xaml</DependentUpon>
+    </Compile>
     <Compile Include="Services\GameInfoCache.cs" />
     <Compile Include="Services\StorageSnapshot.cs" />
     <Compile Include="Services\Artwork\AppIconTiles.cs" />

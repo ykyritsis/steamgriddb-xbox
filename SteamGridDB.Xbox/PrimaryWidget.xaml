@@ -182,6 +182,19 @@
                     Style="{StaticResource FluentIconButton}">
                     <TextBlock x:Name="AppsTabText" FontSize="13" FontWeight="SemiBold" Text="Apps" />
                 </Button>
+                <!--  Shown when a newer release is available  -->
+                <Button
+                    x:Name="UpdateButton"
+                    Height="32"
+                    Padding="16,0"
+                    Background="#107C10"
+                    Click="UpdateButton_Click"
+                    CornerRadius="16"
+                    Foreground="White"
+                    ToolTipService.ToolTip="Download and install the new version"
+                    Visibility="Collapsed">
+                    <TextBlock x:Name="UpdateButtonText" FontSize="13" FontWeight="SemiBold" Text="Update" />
+                </Button>
             </StackPanel>
 
             <!--  Game entries list  -->

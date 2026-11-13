@@ -187,6 +187,9 @@ namespace SteamGridDB.Xbox
 
             await LoadGameEntriesAsync();
 
+            // In the background: offer the update button if a newer release exists
+            var _ = CheckForUpdateAsync();
+
             // Set default focus to Fix my library button for controller navigation
             FixLibraryButton.Focus(FocusState.Programmatic);
         }

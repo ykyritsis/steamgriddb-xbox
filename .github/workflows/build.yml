@@ -98,6 +98,8 @@ jobs:
 
           New-Item -ItemType Directory -Force release | Out-Null
           Compress-Archive -Path "$stage\*" -DestinationPath "release\SteamGridDB.Xbox.Community_${version}_$platform.zip"
+          # The bare package too: the widget's built-in updater downloads this
+          Copy-Item $msix.FullName "release\SteamGridDB.Xbox.Community_${version}_$platform.msix"
           Get-ChildItem $stage -Recurse | Select-Object FullName, Length
 
       - uses: actions/upload-artifact@v4
@@ -152,4 +154,4 @@ jobs:
           previous=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)
           if [ -n "$previous" ]; then range="$previous..$GITHUB_REF_NAME"; else range="fdd334e..$GITHUB_REF_NAME"; fi  # first release: changes since the fork point
           git log --no-merges --format='- %s' "$range" >> notes.md || git log --no-merges --format='- %s' -20 >> notes.md
-          gh release create "$GITHUB_REF_NAME" release/*.zip --title "SteamGridDB for Xbox (Community) $GITHUB_REF_NAME" --notes-file notes.md
+          gh release create "$GITHUB_REF_NAME" release/*.zip release/*.msix --title "SteamGridDB for Xbox (Community) $GITHUB_REF_NAME" --notes-file notes.md
