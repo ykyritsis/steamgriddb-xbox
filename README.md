@@ -1,6 +1,6 @@
 # SteamGridDB for Xbox
 
-> **Community fork (1.7.6)** of [lirrik/steamgriddb-xbox](https://github.com/lirrik/steamgriddb-xbox) with fixes for games going missing from the list and artwork changes not sticking, plus extra square artwork sources.
+> **Community fork (1.7.13)** of [lirrik/steamgriddb-xbox](https://github.com/lirrik/steamgriddb-xbox) with fixes for games going missing from the list and artwork changes not sticking, plus extra square artwork sources.
 >
 > **Fixed**
 > - **Games missing or a different number found on every refresh** ([upstream #7](https://github.com/lirrik/steamgriddb-xbox/issues/7)): one unreadable manifest entry or locked image used to silently drop every remaining game from that store. Each entry is now handled on its own, manifests are re-read if the Xbox app is mid-write, and refreshes can no longer overlap.
@@ -17,6 +17,9 @@
 > - **Add missing Steam games** (+ button): finds games installed in Steam that the Xbox app doesn't list and adds them to its custom library. It also lists the games the Xbox app did detect, unticked: tick any you can't see, because the Xbox app hides some detected games even when they have a cover (for example EA SPORTS FC 27). They launch through Steam (`steam.exe steam://rungameid/<id>`) rather than the game's exe, and get SteamGridDB or store cover art. The Xbox app is closed while its library is updated, and the widget waits until all of its processes (including the tray icon) have exited, because any one left running saves over the change. Windows asks once whether the widget may do this; otherwise it asks you to close the Xbox app, and the previous library file is backed up first. The custom library format follows [xbox-rom-manager](https://github.com/izzyjade06/xbox-rom-manager). It is not officially documented, so future Xbox app updates may change it.
 > - **Edit artwork for custom games** (games and apps added in the Xbox app or by this widget): every custom game gets an Edit button, using the closest SteamGridDB match for its name plus store art. Custom games with no image get a cover created for them.
 > - **Custom apps** from the Xbox app's new Apps tab (apps you added with +) are listed on their own Apps tab (next to Games), and their icons can be changed the same way. For apps no artwork site knows (Task Manager, driver tools...), the widget builds a cover from the app's own icon on your PC, centred on a dark or colour-matched tile like the Xbox app's built-in launchers. The built-in launcher tiles on that tab (Steam, Battle.net, EA app, Epic, GOG, Ubisoft Connect, Edge) ship inside the Xbox app itself and can't be changed.
+> - **Built-in updater:** when a newer release exists, an *Update* button appears in the widget; one click downloads and installs it.
+> - **Xbox app 2701 cover names:** supports the new `_v2` cover files and moves covers you had already customised over to them.
+> - **New Steam installs** show up in the widget before the Xbox app lists them, so their covers can be set in advance.
 > - **Use your own image** for any game, from a link or (where Game Bar allows it) an image file on your PC. Use **Search another name** if the closest match is the wrong game.
 > - Manual search has a "store artwork only" result, so it works even without a SteamGridDB key.
 > - Games whose name is known (custom games, Epic, Ubisoft) are matched to SteamGridDB by exact name.
