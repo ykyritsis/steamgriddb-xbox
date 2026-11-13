@@ -70,6 +70,7 @@ namespace SteamGridDB.Xbox
             try
             {
                 GameEntries.Clear();
+                coverFileNames.Clear();
                 RefreshDisplayedEntries();
                 StatusText.Text = "Attempting to access ThirdPartyLibraries...";
                 InstructionsPanel.Visibility = Visibility.Collapsed;
@@ -219,6 +220,13 @@ namespace SteamGridDB.Xbox
 
                 StatusText.Text = status;
 
+                int movedCovers = await MoveCoversToCurrentNamesAsync();
+
+                if (movedCovers > 0)
+                {
+                    StatusText.Text = status + $". Moved {movedCovers} of your cover{(movedCovers == 1 ? string.Empty : "s")} to the Xbox app's new file names - {restartHint}";
+                }
+
                 await WatchManifestsAsync(thirdPartyFolder);
             }
             catch (Exception ex)
@@ -297,6 +305,122 @@ namespace SteamGridDB.Xbox
             }
         }
 
+        // Since Xbox app 2701 cover files carry a version: steam_730_v2.png instead of steam_730.png
+        private static readonly System.Text.RegularExpressions.Regex coverVersionSuffix = new System.Text.RegularExpressions.Regex(
+            @"_v(\d+)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+        // Image file names per store folder, listed once per load
+        private readonly Dictionary<string, List<string>> coverFileNames = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Returns the cover file name the Xbox app uses for a game: the highest-versioned file that exists
+        /// (steam_730_v2.png), or, when the game has no cover yet, a name following the folder's current naming.
+        /// Folders from older Xbox app versions have no versioned files and keep the plain name (steam_730.png).
+        /// </summary>
+        private async Task<string> ResolveCoverFileNameAsync(StorageFolder folder, string baseName)
+        {
+            if (!coverFileNames.TryGetValue(folder.Path, out List<string> names))
+            {
+                names = (await StorageSnapshot.GetAsync(async () => await folder.GetFilesAsync()))
+                    .Select(f => f.Name)
+                    .Where(n => n.EndsWith(imageExtension, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                coverFileNames[folder.Path] = names;
+            }
+
+            int bestVersion = 0;
+            string bestName = null;
+            Dictionary<int, int> folderVersions = new Dictionary<int, int>();
+
+            foreach (string name in names)
+            {
+                string stem = Path.GetFileNameWithoutExtension(name);
+                System.Text.RegularExpressions.Match match = coverVersionSuffix.Match(stem);
+
+                if (!match.Success || !int.TryParse(match.Groups[1].Value, out int version))
+                {
+                    continue;
+                }
+
+                folderVersions[version] = folderVersions.TryGetValue(version, out int count) ? count + 1 : 1;
+
+                if (version > bestVersion && string.Equals(stem.Substring(0, match.Index), baseName, StringComparison.OrdinalIgnoreCase))
+                {
+                    bestVersion = version;
+                    bestName = name;
+                }
+            }
+
+            if (bestName != null)
+            {
+                return bestName;
+            }
+
+            // No cover for this game yet: use the version most covers in the folder have, if any
+            return folderVersions.Count > 0
+                ? $"{baseName}_v{folderVersions.OrderByDescending(v => v.Value).ThenByDescending(v => v.Key).First().Key}{imageExtension}"
+                : baseName + imageExtension;
+        }
+
+        /// <summary>
+        /// For a versioned cover name (steam_730_v2.png) returns the name older Xbox app versions used (steam_730.png);
+        /// null when the name is not versioned.
+        /// </summary>
+        private static string GetLegacyCoverFileName(string imageFileName)
+        {
+            string stem = Path.GetFileNameWithoutExtension(imageFileName ?? string.Empty);
+            System.Text.RegularExpressions.Match match = coverVersionSuffix.Match(stem);
+
+            return match.Success ? stem.Substring(0, match.Index) + Path.GetExtension(imageFileName) : null;
+        }
+
+        /// <summary>
+        /// After the Xbox app switched to versioned cover names it shows its own new covers and ignores the old files,
+        /// which is where earlier customisations live. This re-applies each saved custom cover (the old .new file) under
+        /// the new name, once: the Xbox app's new cover is kept as the backup and the old .new file is removed.
+        /// </summary>
+        /// <returns>The number of covers moved.</returns>
+        private async Task<int> MoveCoversToCurrentNamesAsync()
+        {
+            int moved = 0;
+
+            foreach (GameEntry game in GameEntries.ToList())
+            {
+                try
+                {
+                    string imageFileName = Path.GetFileName(game.ImageFilePath ?? string.Empty);
+                    string legacyFileName = GetLegacyCoverFileName(imageFileName);
+
+                    if (legacyFileName == null || game.ImageFolder == null || GamePlatformHelper.IsCustomLibrary(game.Platform))
+                    {
+                        continue;
+                    }
+
+                    // Already customised under the new name, or never customised
+                    if (await game.ImageFolder.TryGetItemAsync(GetSiblingFileName(imageFileName, newImageExtension)) != null ||
+                        !(await game.ImageFolder.TryGetItemAsync(GetSiblingFileName(legacyFileName, newImageExtension)) is StorageFile legacyNew))
+                    {
+                        continue;
+                    }
+
+                    StatusText.Text = $"Moving your cover for {game.Name} to the Xbox app's new file name...";
+
+                    if (await ReplaceImageCoreAsync(game, await FileIO.ReadBufferAsync(legacyNew), false))
+                    {
+                        await legacyNew.DeleteAsync();
+                        moved++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Could not move the cover for {game.Name}: {ex.Message}");
+                }
+            }
+
+            return moved;
+        }
+
         private const int steamCheckSeconds = 90;
         private DispatcherTimer steamCheckTimer;
 
@@ -345,7 +469,7 @@ namespace SteamGridDB.Xbox
                         continue;
                     }
 
-                    string imageFileName = $"steam_{game.AppId}{imageExtension}";
+                    string imageFileName = await ResolveCoverFileNameAsync(steamImages, $"steam_{game.AppId}");
                     BitmapImage image = null;
 
                     if (await steamImages.TryGetItemAsync(imageFileName) is StorageFile imageFile)
@@ -654,7 +778,7 @@ namespace SteamGridDB.Xbox
             }
             else // Image filename is based on ID
             {
-                imageFilePath = Path.Combine(thirdPartyLibrariesPath, folder.Name, entryId.Replace(":", "_") + imageExtension);
+                imageFilePath = Path.Combine(thirdPartyLibrariesPath, folder.Name, await ResolveCoverFileNameAsync(folder, entryId.Replace(":", "_")));
                 imageFolder = folder;
             }
 
