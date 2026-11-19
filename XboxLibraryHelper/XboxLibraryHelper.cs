@@ -42,8 +42,11 @@ internal static class XboxLibraryHelper
 
         try
         {
-            // An explicit folder can be passed for testing outside the package
-            workFolder = args.Length > 1 ? args[1] : GetWorkFolder();
+            // "apply <folder>" passes a folder explicitly for testing outside the package. Only that exact form counts:
+            // when the widget starts this program, Windows adds its own arguments ("/InvokerPRAID: SteamGridDB.Xbox"),
+            // which must not be mistaken for a folder.
+            bool explicitFolder = args.Length > 1 && string.Equals(args[0], "apply", StringComparison.OrdinalIgnoreCase);
+            workFolder = explicitFolder ? args[1] : GetWorkFolder();
 
             if (workFolder == null || !Directory.Exists(workFolder))
             {

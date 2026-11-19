@@ -199,9 +199,20 @@ namespace SteamGridDB.Xbox
 
                 string nextStep = reopened ? "the Xbox app has been reopened" : $"open the Xbox app to see {(kept == 1 ? "it" : "them")}";
 
-                StatusText.Text = kept == addedIds.Count
-                    ? $"Added {kept} Steam game{(kept == 1 ? string.Empty : "s")} to the Xbox app - {nextStep}"
-                    : $"The Xbox app overwrote the change ({kept} of {addedIds.Count} kept) - close it completely and try again";
+                if (kept < addedIds.Count)
+                {
+                    StatusText.Text = $"The Xbox app overwrote the change ({kept} of {addedIds.Count} kept) - close it completely and try again";
+                }
+                else if (!CustomLibraryWriter.LastCommitUsedHelper && CustomLibraryWriter.IsHelperAvailable)
+                {
+                    // Written directly because the companion did not respond: the Xbox app's background process will
+                    // most likely save its old copy over it, so do not claim success
+                    StatusText.Text = $"Saved {kept} game{(kept == 1 ? string.Empty : "s")}, but the widget's helper did not respond, so the Xbox app may undo it. Restart the PC and try again if they do not appear.";
+                }
+                else
+                {
+                    StatusText.Text = $"Added {kept} Steam game{(kept == 1 ? string.Empty : "s")} to the Xbox app - {nextStep}";
+                }
 
                 // The custom library changed, so reload to show the new entries here too
                 manifestReloadPending = true;
